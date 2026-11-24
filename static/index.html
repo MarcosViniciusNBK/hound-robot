@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="Painel analítico em tempo real para estudo de corridas de galgos e simulação de apostas Lay." />
+  <title>Hound Robot — Painel Analítico Lay</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+  <script src="/static/app.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#mainContent">Pular para o conteúdo principal</a>
+
+  <div class="layout">
+    <header class="header">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true">HR</div>
+        <div>
+          <h1>Hound Robot</h1>
+          <p class="subtitle">Análise Estatística GBGB • Seleção Lay (sem 1º nem último colocado)</p>
+        </div>
+      </div>
+
+      <div class="header-actions">
+        <div id="wsBadge" class="status-pill is-offline" role="status" aria-live="polite">
+          <span class="status-dot" aria-hidden="true"></span>
+          <span id="wsLabel">Conectando...</span>
+        </div>
+        <button id="btnRunStudy" type="button" class="btn btn-primary">Atualizar Estudo</button>
+      </div>
+    </header>
+
+    <section class="study-strip" aria-label="Status do estudo em tempo real">
+      <div class="study-strip-row">
+        <div class="study-status-text">
+          <span id="phasePill" class="tag">IDLE</span>
+          <span id="statusMessage" aria-live="polite">Inicializando painel...</span>
+        </div>
+        <div class="study-meta">
+          <span id="cycleCounter">Ciclos: 0</span>
+          <span id="lastRunLabel">Última atualização: —</span>
+        </div>
+      </div>
+      <progress id="studyProgress" class="study-progress" value="0" max="100" aria-label="Progresso do estudo atual"></progress>
+    </section>
+
+    <section class="kpi-grid" aria-label="Resumo financeiro e operacional">
+      <article class="kpi-card">
+        <div class="kpi-header">
+          <span class="kpi-label">Banca Atual (Simulação)</span>
+          <span id="kpiProfitBadge" class="badge badge-neutral">—</span>
+        </div>
+        <strong id="kpiBankroll" class="kpi-value">$1.000,00</strong>
+        <p id="kpiBankrollSub" class="kpi-sub">Inicial: $1.000,00 • ROI: 0,0%</p>
+      </article>
+
+      <article class="kpi-card">
+        <div class="kpi-header">
+          <span class="kpi-label">Ganhos vs. Perdas</span>
+        </div>
+        <div class="win-loss-row">
+          <span class="text-success">Ganhou: <strong id="kpiTotalWon">+$0,00</strong></span>
+          <span class="text-danger">Perdeu: <strong id="kpiTotalLost">-$0,00</strong></span>
+        </div>
+        <p id="kpiWinLossSub" class="kpi-sub">0 acertos / 0 erros em simulações</p>
+      </article>
+
+      <article class="kpi-card">
+        <div class="kpi-header">
+          <span class="kpi-label">Assertividade Lay</span>
+        </div>
+        <strong id="kpiLayAcc" class="kpi-value">0,0%</strong>
+        <p id="kpiLaySub" class="kpi-sub">Indica o galgo que não vencerá</p>
+      </article>
+
+      <article class="kpi-card">
+        <div class="kpi-header">
+          <span class="kpi-label">Base &amp; Calibração</span>
+        </div>
+        <strong id="kpiRaces" class="kpi-value">0 corridas</strong>
+        <p id="kpiModelSub" class="kpi-sub">Log-Loss: — • Aguardando treino</p>
+      </article>
+    </section>
+
+    <nav class="tabs" role="tablist" aria-label="Seções do painel">
+      <button id="tabBtn-races" class="tab-btn is-active" type="button" role="tab" aria-selected="true" aria-controls="panel-races" data-tab="races">
+        Corridas do Dia
+      </button>
+      <button id="tabBtn-performance" class="tab-btn" type="button" role="tab" aria-selected="false" aria-controls="panel-performance" data-tab="performance" tabindex="-1">
+        Desempenho &amp; Erros
+      </button>
+      <button id="tabBtn-tools" class="tab-btn" type="button" role="tab" aria-selected="false" aria-controls="panel-tools" data-tab="tools" tabindex="-1">
+        Simular Páreo &amp; Logs
+      </button>
+    </nav>
+
+    <main id="mainContent">
+      <!-- ABA 1: CORRIDAS DO DIA -->
+      <section id="panel-races" class="tab-panel is-active" role="tabpanel" aria-labelledby="tabBtn-races">
+        <div class="toolbar">
+          <div class="toolbar-group">
+            <label for="dateSelect">Data</label>
+            <select id="dateSelect"></select>
+            <label for="customDateInput" class="sr-only">Escolher data na GBGB</label>
+            <input type="date" id="customDateInput" />
+            <button id="btnSyncDate" type="button" class="btn btn-secondary">Buscar Data</button>
+          </div>
+
+          <div class="toolbar-group">
+            <label for="trackSelect">Pista</label>
+            <select id="trackSelect">
+              <option value="ALL">Todas as pistas</option>
+            </select>
+            <label for="searchInput" class="sr-only">Filtrar corridas ou galgos</label>
+            <input type="search" id="searchInput" placeholder="Buscar galgo ou pista..." />
+          </div>
+        </div>
+
+        <div id="daySummaryBar" class="day-summary" aria-live="polite"></div>
+
+        <div class="card">
+          <div class="table-wrap">
+            <table class="data-table races-table" aria-label="Corridas do dia e seleção de Lay">
+              <thead>
+                <tr>
+                  <th scope="col">Horário / Pista</th>
+                  <th scope="col">Galgo para Apostar (Perderá)</th>
+                  <th scope="col">Vencedor Provável</th>
+                  <th scope="col">Status do Bot</th>
+                  <th scope="col">Resultado Simulado</th>
+                  <th scope="col">Detalhes</th>
+                </tr>
+              </thead>
+              <tbody id="racesTableBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ABA 2: DESEMPENHO & ERROS -->
+      <section id="panel-performance" class="tab-panel" role="tabpanel" aria-labelledby="tabBtn-performance" hidden>
+        <div class="two-col">
+          <section class="card card-pad">
+            <h2>Evolução da Banca Virtual</h2>
+            <p class="card-desc">Histórico out-of-sample com stake fixa de $20, comissão de 2% e teto de odd 12.0.</p>
+            <div id="bankrollChart" class="chart-box"></div>
+          </section>
+
+          <section class="card card-pad">
+            <h2>Principais Fatores do Modelo</h2>
+            <p class="card-desc">Peso das variáveis usadas para estimar probabilidades sem vazamento futuro.</p>
+            <div id="featureList" class="feature-list"></div>
+          </section>
+        </div>
+
+        <section class="card card-pad">
+          <h2>Histórico de Ciclos de Treino</h2>
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th scope="col">Ciclo</th>
+                  <th scope="col">Modelo</th>
+                  <th scope="col">Amostra Val</th>
+                  <th scope="col">Log-Loss</th>
+                  <th scope="col">Brier</th>
+                  <th scope="col">Acerto Lay</th>
+                  <th scope="col">ROI Val</th>
+                </tr>
+              </thead>
+              <tbody id="modelHistoryBody"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="card card-pad">
+          <h2>Auditoria de Erros (Quando o Galgo Indicado Venceu)</h2>
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th scope="col">Data</th>
+                  <th scope="col">Pista / Páreo</th>
+                  <th scope="col">Galgo</th>
+                  <th scope="col">Prob. Vitória</th>
+                  <th scope="col">Odd SP</th>
+                  <th scope="col">Perda</th>
+                  <th scope="col">Diagnóstico</th>
+                </tr>
+              </thead>
+              <tbody id="errorAuditBody"></tbody>
+            </table>
+          </div>
+        </section>
+      </section>
+
+      <!-- ABA 3: SIMULADOR & LOGS -->
+      <section id="panel-tools" class="tab-panel" role="tabpanel" aria-labelledby="tabBtn-tools" hidden>
+        <section class="card card-pad">
+          <h2>Simular Páreo Futuro</h2>
+          <p class="card-desc">Informe os participantes (com autocomplete da base) para prever o provável vencedor e o galgo para apostar em Lay.</p>
+
+          <div class="sim-meta">
+            <div>
+              <label for="simTrack">Pista</label>
+              <input type="text" id="simTrack" value="Nottingham" />
+            </div>
+            <div>
+              <label for="simDistance">Distância (m)</label>
+              <input type="number" id="simDistance" value="480" min="200" max="1000" />
+            </div>
+            <div>
+              <label for="simClass">Classe</label>
+              <input type="text" id="simClass" value="A1" />
+            </div>
+          </div>
+
+          <datalist id="dogsDatalist"></datalist>
+          <div id="simRunnersGrid" class="sim-grid"></div>
+
+          <div class="sim-actions">
+            <button id="btnRunSim" type="button" class="btn btn-primary">Analisar Páreo</button>
+          </div>
+          <div id="simResultBox" class="sim-result" aria-live="polite"></div>
+        </section>
+
+        <section class="card card-pad">
+          <h2>Feed de Estudos em Tempo Real</h2>
+          <div id="liveLogsList" class="logs-list" aria-live="polite"></div>
+        </section>
+      </section>
+    </main>
+  </div>
+</body>
+</html>
