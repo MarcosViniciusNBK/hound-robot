@@ -93,6 +93,8 @@ class RunnerSample:
     is_winner: int
     features: np.ndarray
     summary: dict[str, Any]
+    race_distance: float | None = None
+    race_class: str | None = None
 
 
 class RollingState:
@@ -338,6 +340,8 @@ class RollingState:
                     is_winner=1 if pos == 1 else 0,
                     features=vec,
                     summary=summ,
+                    race_distance=race_meta.get("race_distance"),
+                    race_class=race_meta.get("race_class"),
                 )
             )
         return samples

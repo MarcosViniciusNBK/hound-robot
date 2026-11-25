@@ -417,7 +417,7 @@ def enrich_dogs_for_date(
     with get_conn(db_path) as conn:
         rows = conn.execute(
             """
-            SELECT DISTINCT e.dog_id, e.dog_name
+            SELECT DISTINCT e.dog_id, e.dog_name, MIN(r.is_completed) AS completed_flag
             FROM entries e
             JOIN races r ON r.race_id = e.race_id
             WHERE r.iso_date = ?
@@ -428,6 +428,8 @@ def enrich_dogs_for_date(
                   GROUP BY dh.dog_id
                   HAVING COUNT(*) >= 3
               )
+            GROUP BY e.dog_id, e.dog_name
+            ORDER BY completed_flag ASC, e.dog_name ASC
             LIMIT ?
             """,
             (iso_date, max_dogs),

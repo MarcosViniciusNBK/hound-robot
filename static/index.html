@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="description" content="Painel analítico em tempo real para estudo de corridas de galgos e simulação de apostas Lay." />
-  <title>Hound Robot — Painel Analítico Lay</title>
+  <meta name="description" content="Banca de testes em Reais (R$) com estudo automático de corridas passadas e apostas fictícias em corridas futuras com resultados verdadeiros." />
+  <title>Hound Robot — Banca de Testes em Reais (R$)</title>
   <link rel="stylesheet" href="/static/styles.css" />
   <script src="/static/app.js" defer></script>
 </head>
@@ -17,7 +17,7 @@
         <div class="brand-mark" aria-hidden="true">HR</div>
         <div>
           <h1>Hound Robot</h1>
-          <p class="subtitle">Análise Estatística GBGB • Seleção Lay (sem 1º nem último colocado)</p>
+          <p class="subtitle">Banca de Testes em Reais (R$) • Apostas Fictícias Pré-Corrida com Resultados Reais (GBGB)</p>
         </div>
       </div>
 
@@ -30,7 +30,7 @@
       </div>
     </header>
 
-    <section class="study-strip" aria-label="Status do estudo em tempo real">
+    <section class="study-strip" aria-label="Status do estudo e configuração da banca de testes">
       <div class="study-strip-row">
         <div class="study-status-text">
           <span id="phasePill" class="tag">IDLE</span>
@@ -42,25 +42,37 @@
         </div>
       </div>
       <progress id="studyProgress" class="study-progress" value="0" max="100" aria-label="Progresso do estudo atual"></progress>
+
+      <form id="bankrollForm" class="bankroll-config" aria-label="Configurar banca de testes em reais">
+        <div class="config-field">
+          <label for="cfgBankrollStart">Banca Inicial (R$)</label>
+          <input id="cfgBankrollStart" type="number" step="10" min="10" value="100" />
+        </div>
+        <div class="config-field">
+          <label for="cfgLayStake">Stake por Aposta (R$)</label>
+          <input id="cfgLayStake" type="number" step="1" min="1" value="2" />
+        </div>
+        <button id="btnSaveBankroll" type="submit" class="btn btn-secondary">Reiniciar Banca (R$)</button>
+      </form>
     </section>
 
-    <section class="kpi-grid" aria-label="Resumo financeiro e operacional">
+    <section class="kpi-grid" aria-label="Resumo financeiro e operacional em Reais">
       <article class="kpi-card">
         <div class="kpi-header">
-          <span class="kpi-label">Banca Atual (Simulação)</span>
+          <span class="kpi-label">Banca Atual (R$)</span>
           <span id="kpiProfitBadge" class="badge badge-neutral">—</span>
         </div>
-        <strong id="kpiBankroll" class="kpi-value">$1.000,00</strong>
-        <p id="kpiBankrollSub" class="kpi-sub">Inicial: $1.000,00 • ROI: 0,0%</p>
+        <strong id="kpiBankroll" class="kpi-value">R$ 100,00</strong>
+        <p id="kpiBankrollSub" class="kpi-sub">Saldo livre: R$ 100,00 • Em risco: R$ 0,00</p>
       </article>
 
       <article class="kpi-card">
         <div class="kpi-header">
-          <span class="kpi-label">Ganhos vs. Perdas</span>
+          <span class="kpi-label">Ganhos vs. Perdas (R$)</span>
         </div>
         <div class="win-loss-row">
-          <span class="text-success">Ganhou: <strong id="kpiTotalWon">+$0,00</strong></span>
-          <span class="text-danger">Perdeu: <strong id="kpiTotalLost">-$0,00</strong></span>
+          <span class="text-success">Ganhou: <strong id="kpiTotalWon">+R$ 0,00</strong></span>
+          <span class="text-danger">Perdeu: <strong id="kpiTotalLost">-R$ 0,00</strong></span>
         </div>
         <p id="kpiWinLossSub" class="kpi-sub">0 acertos / 0 erros em simulações</p>
       </article>
@@ -68,9 +80,10 @@
       <article class="kpi-card">
         <div class="kpi-header">
           <span class="kpi-label">Assertividade Lay</span>
+          <span id="kpiPendingBadge" class="badge badge-neutral">0 abertas</span>
         </div>
         <strong id="kpiLayAcc" class="kpi-value">0,0%</strong>
-        <p id="kpiLaySub" class="kpi-sub">Indica o galgo que não vencerá</p>
+        <p id="kpiLaySub" class="kpi-sub">Galgo que perderá (sem 1º nem último)</p>
       </article>
 
       <article class="kpi-card">
@@ -84,7 +97,7 @@
 
     <nav class="tabs" role="tablist" aria-label="Seções do painel">
       <button id="tabBtn-races" class="tab-btn is-active" type="button" role="tab" aria-selected="true" aria-controls="panel-races" data-tab="races">
-        Corridas do Dia
+        Corridas do Dia &amp; Futuras
       </button>
       <button id="tabBtn-performance" class="tab-btn" type="button" role="tab" aria-selected="false" aria-controls="panel-performance" data-tab="performance" tabindex="-1">
         Desempenho &amp; Erros
@@ -97,6 +110,31 @@
     <main id="mainContent">
       <!-- ABA 1: CORRIDAS DO DIA -->
       <section id="panel-races" class="tab-panel is-active" role="tabpanel" aria-labelledby="tabBtn-races">
+        <section id="upcomingCard" class="card card-pad" hidden>
+          <div class="section-head">
+            <div>
+              <h2>Corridas Futuras — Apostas Fictícias Travadas (R$)</h2>
+              <p class="card-desc">Apostas registradas antes do início da corrida; assim que o resultado oficial sair na GBGB, o saldo é liquidado automaticamente.</p>
+            </div>
+            <span id="upcomingCountBadge" class="badge badge-warning">0 abertas</span>
+          </div>
+          <div class="table-wrap">
+            <table class="data-table" aria-label="Apostas fictícias abertas em corridas futuras">
+              <thead>
+                <tr>
+                  <th scope="col">Horário (UK) / Pista</th>
+                  <th scope="col">Galgo Apostado (Perderá)</th>
+                  <th scope="col">Chance Perder</th>
+                  <th scope="col">Odd Est.</th>
+                  <th scope="col">Stake / Risco</th>
+                  <th scope="col">Situação</th>
+                </tr>
+              </thead>
+              <tbody id="upcomingBody"></tbody>
+            </table>
+          </div>
+        </section>
+
         <div class="toolbar">
           <div class="toolbar-group">
             <label for="dateSelect">Data</label>
@@ -127,7 +165,7 @@
                   <th scope="col">Galgo para Apostar (Perderá)</th>
                   <th scope="col">Vencedor Provável</th>
                   <th scope="col">Status do Bot</th>
-                  <th scope="col">Resultado Simulado</th>
+                  <th scope="col">Resultado (R$)</th>
                   <th scope="col">Detalhes</th>
                 </tr>
               </thead>
@@ -139,19 +177,66 @@
 
       <!-- ABA 2: DESEMPENHO & ERROS -->
       <section id="panel-performance" class="tab-panel" role="tabpanel" aria-labelledby="tabBtn-performance" hidden>
+        <div id="simRulesBar" class="day-summary" aria-live="polite"></div>
+
         <div class="two-col">
           <section class="card card-pad">
-            <h2>Evolução da Banca Virtual</h2>
-            <p class="card-desc">Histórico out-of-sample com stake fixa de $20, comissão de 2% e teto de odd 12.0.</p>
+            <h2>Evolução da Banca de Testes (R$)</h2>
+            <p class="card-desc">Backtest out-of-sample com comissão de 5%, spread + 1 tick, filtro +EV e teto de risco de 15%.</p>
             <div id="bankrollChart" class="chart-box"></div>
           </section>
 
           <section class="card card-pad">
-            <h2>Principais Fatores do Modelo</h2>
-            <p class="card-desc">Peso das variáveis usadas para estimar probabilidades sem vazamento futuro.</p>
-            <div id="featureList" class="feature-list"></div>
+            <h2>Calibração do Modelo (Previsto vs. Real)</h2>
+            <p class="card-desc">Confere se a probabilidade prevista pelo robô corresponde à frequência real nas corridas.</p>
+            <div class="table-wrap">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th scope="col">Faixa Prevista</th>
+                    <th scope="col">Galgos</th>
+                    <th scope="col">Vitória Prevista</th>
+                    <th scope="col">Vitória Real</th>
+                    <th scope="col">Derrota Real</th>
+                  </tr>
+                </thead>
+                <tbody id="calibrationBody"></tbody>
+              </table>
+            </div>
           </section>
         </div>
+
+        <section class="card card-pad">
+          <div class="section-head">
+            <div>
+              <h2>Autoaprendizado com Próprios Erros</h2>
+              <p class="card-desc">Perfis de pista, distância, classe e odd monitorados pelo histórico do próprio robô; contextos com erro sistemático ou ROI negativo são bloqueados automaticamente.</p>
+            </div>
+            <span id="adaptiveModeBadge" class="badge badge-neutral">Modo Normal</span>
+          </div>
+          <div id="adaptiveMetaBar" class="day-summary"></div>
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th scope="col">Contexto Aprendido</th>
+                  <th scope="col">Entradas</th>
+                  <th scope="col">Acerto Lay</th>
+                  <th scope="col">ROI</th>
+                  <th scope="col">Previsto vs. Real</th>
+                  <th scope="col">Decisão</th>
+                </tr>
+              </thead>
+              <tbody id="adaptiveBody"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="card card-pad">
+          <h2>Principais Fatores do Modelo</h2>
+          <p class="card-desc">Peso das variáveis usadas para estimar probabilidades sem vazamento futuro.</p>
+          <div id="featureList" class="feature-list"></div>
+        </section>
 
         <section class="card card-pad">
           <h2>Histórico de Ciclos de Treino</h2>
@@ -183,8 +268,8 @@
                   <th scope="col">Pista / Páreo</th>
                   <th scope="col">Galgo</th>
                   <th scope="col">Prob. Vitória</th>
-                  <th scope="col">Odd SP</th>
-                  <th scope="col">Perda</th>
+                  <th scope="col">Odd</th>
+                  <th scope="col">Perda (R$)</th>
                   <th scope="col">Diagnóstico</th>
                 </tr>
               </thead>
@@ -197,7 +282,7 @@
       <!-- ABA 3: SIMULADOR & LOGS -->
       <section id="panel-tools" class="tab-panel" role="tabpanel" aria-labelledby="tabBtn-tools" hidden>
         <section class="card card-pad">
-          <h2>Simular Páreo Futuro</h2>
+          <h2>Simular Páreo Futuro Manualmente</h2>
           <p class="card-desc">Informe os participantes (com autocomplete da base) para prever o provável vencedor e o galgo para apostar em Lay.</p>
 
           <div class="sim-meta">
@@ -222,6 +307,15 @@
             <button id="btnRunSim" type="button" class="btn btn-primary">Analisar Páreo</button>
           </div>
           <div id="simResultBox" class="sim-result" aria-live="polite"></div>
+        </section>
+
+        <section class="card card-pad">
+          <h2>Betfair Historical Data (Odds Reais de Exchange)</h2>
+          <p id="bfHistDesc" class="card-desc">Coloque arquivos gratuitos (.tar.bz2 / .bz2) do Betfair Historical Data na pasta local e clique para cruzar com os resultados GBGB.</p>
+          <div class="toolbar-group">
+            <button id="btnImportBf" type="button" class="btn btn-secondary">Importar Arquivos da Pasta</button>
+            <span id="bfImportStatus" class="meta-inline" aria-live="polite"></span>
+          </div>
         </section>
 
         <section class="card card-pad">

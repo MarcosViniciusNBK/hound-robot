@@ -14,11 +14,18 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from app.betfair_hist import import_betfair_directory
 from app.config import BASE_DIR, settings
-from app.db import get_conn, init_db
+from app.db import get_bankroll_config, get_conn, init_db, save_bankroll_config
 from app.features import build_chronological_dataset
-from app.lay_engine import compute_lay_ev, explain_runner, select_lay_candidate
-from app.model import load_latest_model
+from app.lay_engine import (
+    compute_lay_ev,
+    compute_portfolio_metrics,
+    explain_runner,
+    persist_predictions_and_paper_bets,
+    select_lay_candidate,
+)
+from app.model import compute_calibration_buckets, load_latest_model, walk_forward_out_of_sample_probs
 from app.study_worker import coordinator
 
 
@@ -43,6 +50,12 @@ class SimulateRaceRequest(BaseModel):
     race_distance: float = Field(default=480.0, gt=100.0, le=1200.0)
     race_class: str = "A1"
     runners: list[SimRunnerInput] = Field(min_length=2, max_length=8)
+
+
+class BankrollConfigRequest(BaseModel):
+    bankroll_start: float = Field(ge=10.0, le=10000000.0)
+    lay_stake: float = Field(ge=1.0, le=100000.0)
+    reset_live: bool = True
 
 
 @asynccontextmanager
@@ -138,28 +151,63 @@ def get_overview(selected_date: str | None = Query(default=None, alias="date")) 
                 COUNT(*) AS total_bets,
                 SUM(CASE WHEN status = 'WON_LAY' THEN 1 ELSE 0 END) AS won_bets,
                 SUM(CASE WHEN status = 'LOST_LAY' THEN 1 ELSE 0 END) AS lost_bets,
+                SUM(CASE WHEN status = 'PENDING' THEN 1 ELSE 0 END) AS pending_bets,
+                COALESCE(SUM(CASE WHEN status = 'PENDING' THEN liability ELSE 0.0 END), 0.0) AS committed_liability,
+                COALESCE(SUM(CASE WHEN status = 'WON_LAY' THEN pnl ELSE 0.0 END), 0.0) AS total_won_amount,
+                COALESCE(SUM(CASE WHEN status = 'LOST_LAY' THEN ABS(pnl) ELSE 0.0 END), 0.0) AS total_lost_amount,
+                COALESCE(SUM(CASE WHEN status IN ('WON_LAY', 'LOST_LAY') THEN pnl ELSE 0.0 END), 0.0) AS total_pnl,
+                COALESCE(SUM(CASE WHEN status IN ('WON_LAY', 'LOST_LAY') THEN liability ELSE 0.0 END), 0.0) AS total_risked
+            FROM paper_bets
+            """
+        ).fetchone()
+
+        backtest_stats = conn.execute(
+            """
+            SELECT
+                COUNT(*) AS total_bets,
+                SUM(CASE WHEN status = 'WON_LAY' THEN 1 ELSE 0 END) AS won_bets,
+                SUM(CASE WHEN status = 'LOST_LAY' THEN 1 ELSE 0 END) AS lost_bets,
                 COALESCE(SUM(CASE WHEN status = 'WON_LAY' THEN pnl ELSE 0.0 END), 0.0) AS total_won_amount,
                 COALESCE(SUM(CASE WHEN status = 'LOST_LAY' THEN ABS(pnl) ELSE 0.0 END), 0.0) AS total_lost_amount,
                 COALESCE(SUM(pnl), 0.0) AS total_pnl,
                 COALESCE(SUM(liability), 0.0) AS total_risked
-            FROM paper_bets
-            WHERE status IN ('WON_LAY', 'LOST_LAY')
+            FROM backtest_bets
             """
         ).fetchone()
+
+        pending_rows = conn.execute(
+            """
+            SELECT race_id, iso_date, race_dt, track_name, race_number, trap_number,
+                   dog_name, win_prob, lose_prob, lay_odds, odds_source, stake, liability
+            FROM paper_bets
+            WHERE status = 'PENDING'
+            ORDER BY race_dt ASC
+            LIMIT 40
+            """
+        ).fetchall()
 
         bankroll_rows = conn.execute(
             """
             SELECT id, iso_date, track_name, race_number, dog_name, lay_odds, status, pnl, bankroll_after
-            FROM paper_bets
-            WHERE status IN ('WON_LAY', 'LOST_LAY')
+            FROM backtest_bets
             ORDER BY id ASC
             """
         ).fetchall()
 
+        cal_row = conn.execute(
+            "SELECT value FROM app_settings WHERE key = 'calibration_buckets'"
+        ).fetchone()
+        adap_row = conn.execute(
+            "SELECT value FROM app_settings WHERE key = 'adaptive_learning'"
+        ).fetchone()
+        ex_cnt_row = conn.execute(
+            "SELECT COUNT(*) AS c FROM entries WHERE exchange_lay_odds IS NOT NULL"
+        ).fetchone()
+
         error_rows = conn.execute(
             """
             SELECT iso_date, track_name, race_number, trap_number, dog_name, win_prob, lose_prob, lay_odds, liability, pnl, error_reason
-            FROM paper_bets
+            FROM backtest_bets
             WHERE status = 'LOST_LAY'
             ORDER BY id DESC
             LIMIT 25
@@ -170,14 +218,37 @@ def get_overview(selected_date: str | None = Query(default=None, alias="date")) 
             "SELECT id, created_at, level, phase, message, meta_json FROM study_logs ORDER BY id DESC LIMIT 40"
         ).fetchall()
 
-    total_bets = int(paper_stats["total_bets"] or 0)
+    bankroll_start, lay_stake = get_bankroll_config(
+        settings.db_path, settings.virtual_bankroll_start, settings.virtual_lay_stake
+    )
     won_bets = int(paper_stats["won_bets"] or 0)
     lost_bets = int(paper_stats["lost_bets"] or 0)
+    settled_bets = won_bets + lost_bets
+    pending_bets = int(paper_stats["pending_bets"] or 0)
+    committed_liability = round(float(paper_stats["committed_liability"] or 0.0), 2)
     total_won_amount = round(float(paper_stats["total_won_amount"] or 0.0), 2)
     total_lost_amount = round(float(paper_stats["total_lost_amount"] or 0.0), 2)
     total_pnl = round(float(paper_stats["total_pnl"] or 0.0), 2)
     total_risked = float(paper_stats["total_risked"] or 0.0)
-    current_bankroll = round(settings.virtual_bankroll_start + total_pnl, 2)
+    current_bankroll = round(bankroll_start + total_pnl, 2)
+    available_balance = round(max(0.0, current_bankroll - committed_liability), 2)
+
+    bt_total = int(backtest_stats["total_bets"] or 0)
+    bt_won = int(backtest_stats["won_bets"] or 0)
+    bt_lost = int(backtest_stats["lost_bets"] or 0)
+    bt_pnl = round(float(backtest_stats["total_pnl"] or 0.0), 2)
+    bt_risked = float(backtest_stats["total_risked"] or 0.0)
+    bt_pnls = [float(r["pnl"]) for r in bankroll_rows]
+    bt_risk_metrics = compute_portfolio_metrics(bt_pnls, bankroll_start)
+    try:
+        calibration_buckets = json.loads(cal_row["value"]) if cal_row else []
+    except Exception:
+        calibration_buckets = []
+    try:
+        adaptive_learning = json.loads(adap_row["value"]) if adap_row else {}
+    except Exception:
+        adaptive_learning = {}
+    exchange_entries_count = int(ex_cnt_row["c"] or 0) if ex_cnt_row else 0
 
     latest_model_dict = None
     feature_importances: list[dict[str, Any]] = []
@@ -215,18 +286,45 @@ def get_overview(selected_date: str | None = Query(default=None, alias="date")) 
         "feature_importances": feature_importances,
         "model_history": [dict(r) for r in reversed(model_history_rows)],
         "paper_summary": {
-            "start_bankroll": settings.virtual_bankroll_start,
+            "start_bankroll": bankroll_start,
+            "lay_stake": lay_stake,
             "current_bankroll": current_bankroll,
+            "available_balance": available_balance,
+            "committed_liability": committed_liability,
             "total_pnl": total_pnl,
             "is_profit": total_pnl >= 0,
             "total_won_amount": total_won_amount,
             "total_lost_amount": total_lost_amount,
             "roi_pct": round((total_pnl / total_risked) * 100.0, 2) if total_risked > 0 else 0.0,
-            "total_bets": total_bets,
+            "total_bets": settled_bets,
             "won_bets": won_bets,
             "lost_bets": lost_bets,
-            "win_rate_pct": round((won_bets / total_bets) * 100.0, 2) if total_bets > 0 else 0.0,
+            "pending_bets": pending_bets,
+            "live_settled_bets": settled_bets,
+            "live_settled_pnl": total_pnl,
+            "win_rate_pct": round((won_bets / settled_bets) * 100.0, 2) if settled_bets > 0 else 0.0,
         },
+        "backtest_summary": {
+            "total_bets": bt_total,
+            "won_bets": bt_won,
+            "lost_bets": bt_lost,
+            "total_pnl": bt_pnl,
+            "roi_pct": round((bt_pnl / bt_risked) * 100.0, 2) if bt_risked > 0 else 0.0,
+            "win_rate_pct": round((bt_won / bt_total) * 100.0, 2) if bt_total > 0 else 0.0,
+            **bt_risk_metrics,
+        },
+        "calibration_buckets": calibration_buckets,
+        "adaptive_learning": adaptive_learning,
+        "simulation_rules": {
+            "commission_pct": round(settings.exchange_commission * 100.0, 1),
+            "spread_pct": round(settings.lay_spread_pct * 100.0, 1),
+            "slippage_ticks": settings.lay_slippage_ticks,
+            "max_risk_pct": round(settings.max_risk_pct_bankroll * 100.0, 1),
+            "min_prior_runs": settings.min_prior_runs_for_bet,
+            "exchange_entries_count": exchange_entries_count,
+            "betfair_hist_dir": str(settings.betfair_hist_dir),
+        },
+        "upcoming_bets": [dict(r) for r in pending_rows],
         "bankroll_curve": [dict(r) for r in bankroll_rows[-120:]],
         "error_audit": [dict(r) for r in error_rows],
         "logs": logs,
@@ -264,7 +362,7 @@ def get_races(
         if track and track != "ALL":
             query += " AND track_name = ?"
             params.append(track)
-        query += " ORDER BY race_time ASC, track_name ASC, race_number ASC"
+        query += " ORDER BY is_completed ASC, race_time ASC, track_name ASC, race_number ASC"
         race_rows = conn.execute(query, params).fetchall()
 
         race_ids = [int(r["race_id"]) for r in race_rows]
@@ -289,16 +387,28 @@ def get_races(
 
         paper_rows = conn.execute(
             f"""
-            SELECT race_id, status, pnl, liability, lay_odds, stake, error_reason
+            SELECT race_id, status, pnl, liability, lay_odds, odds_source, placed_before_race, stake, error_reason
             FROM paper_bets
             WHERE race_id IN ({placeholders})
             """,
             race_ids,
         ).fetchall()
 
+        bt_rows = conn.execute(
+            f"""
+            SELECT race_id, status, pnl, liability, lay_odds, stake, error_reason
+            FROM backtest_bets
+            WHERE race_id IN ({placeholders})
+            """,
+            race_ids,
+        ).fetchall()
+
     paper_by_race: dict[int, dict[str, Any]] = {
-        int(pr["race_id"]): dict(pr) for pr in paper_rows
+        int(br["race_id"]): {**dict(br), "placed_before_race": 0, "odds_source": "BACKTEST_SP"}
+        for br in bt_rows
     }
+    for pr in paper_rows:
+        paper_by_race[int(pr["race_id"])] = dict(pr)
 
     runners_by_race: dict[int, list[dict[str, Any]]] = {rid: [] for rid in race_ids}
     for rr in runner_rows:
@@ -400,6 +510,53 @@ async def trigger_study(req: StudyTriggerRequest | None = None) -> dict[str, Any
     target_date = req.target_date if req else None
     asyncio.create_task(coordinator.run_study_cycle(days=days, target_date=target_date))
     return {"started": True, "message": "Novo ciclo de estudo iniciado em tempo real."}
+
+
+@app.post("/api/import/betfair-historical")
+async def import_betfair_historical() -> dict[str, Any]:
+    res = import_betfair_directory(settings.db_path, settings.betfair_hist_dir)
+    if res["entries_updated"] > 0:
+        samples, _ = build_chronological_dataset(settings.db_path)
+        if len(samples) >= 30:
+            bundle = load_latest_model()
+            model_name = bundle["model_name"] if bundle else "LogisticCalibrated"
+            run_id = bundle["run_id"] if bundle else None
+            oos_probs = walk_forward_out_of_sample_probs(samples, model_name=model_name)
+            persist_predictions_and_paper_bets(settings.db_path, samples, oos_probs, run_id)
+            cal = compute_calibration_buckets(samples, oos_probs)
+            with get_conn(settings.db_path) as conn:
+                conn.execute(
+                    "INSERT INTO app_settings (key, value) VALUES ('calibration_buckets', ?) "
+                    "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                    (json.dumps(cal),),
+                )
+        await coordinator.ws_manager.broadcast(
+            {"type": "study_complete", "summary": res, "status": dict(coordinator.state)}
+        )
+    return res
+
+
+@app.post("/api/settings/bankroll")
+async def update_bankroll_settings(req: BankrollConfigRequest) -> dict[str, Any]:
+    save_bankroll_config(settings.db_path, req.bankroll_start, req.lay_stake)
+    with get_conn(settings.db_path) as conn:
+        if req.reset_live:
+            conn.execute("DELETE FROM paper_bets")
+        else:
+            conn.execute("DELETE FROM paper_bets WHERE status = 'PENDING'")
+    # Recalculate all balances cleanly in BRL
+    samples, _ = build_chronological_dataset(settings.db_path)
+    summary: dict[str, Any] = {}
+    if len(samples) >= 30:
+        bundle = load_latest_model()
+        model_name = bundle["model_name"] if bundle else "LogisticCalibrated"
+        run_id = bundle["run_id"] if bundle else None
+        oos_probs = walk_forward_out_of_sample_probs(samples, model_name=model_name)
+        summary = persist_predictions_and_paper_bets(settings.db_path, samples, oos_probs, run_id)
+    await coordinator.ws_manager.broadcast(
+        {"type": "study_complete", "summary": summary, "status": dict(coordinator.state)}
+    )
+    return {"saved": True, "bankroll_start": req.bankroll_start, "lay_stake": req.lay_stake, "summary": summary}
 
 
 @app.get("/api/dogs/search")

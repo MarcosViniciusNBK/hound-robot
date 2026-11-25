@@ -6,6 +6,7 @@ from typing import Any
 
 from fastapi import WebSocket
 
+from app.betfair_hist import import_betfair_directory
 from app.config import settings
 from app.db import get_conn, log_study_event
 from app.features import build_chronological_dataset
@@ -16,7 +17,7 @@ from app.gbgb_client import (
     utc_now_iso,
 )
 from app.lay_engine import persist_predictions_and_paper_bets
-from app.model import train_and_evaluate, walk_forward_out_of_sample_probs
+from app.model import compute_calibration_buckets, train_and_evaluate, walk_forward_out_of_sample_probs
 
 
 class ConnectionManager:
@@ -146,6 +147,17 @@ class StudyCoordinator:
 
         self._update_status_sync("enriquecimento", 45, f"Buscando histórico individual dos galgos ({enrich_date})...")
         try:
+            bf_res = import_betfair_directory(settings.db_path, settings.betfair_hist_dir)
+            if bf_res["entries_updated"] > 0:
+                self._log_sync(
+                    "SUCCESS",
+                    "betfair_hist",
+                    f"Betfair Historical Data: {bf_res['entries_updated']} odds reais de Exchange vinculadas.",
+                )
+        except Exception as exc:
+            self._log_sync("WARN", "betfair_hist", f"Falha ao importar Betfair Historical: {exc}")
+
+        try:
             enriched = enrich_dogs_for_date(
                 settings.db_path,
                 client,
@@ -196,6 +208,15 @@ class StudyCoordinator:
             oos_probs,
             model_run_id=bundle.model_run_id,
         )
+        cal_buckets = compute_calibration_buckets(samples, oos_probs)
+        with get_conn(settings.db_path) as conn:
+            import json as _json
+
+            conn.execute(
+                "INSERT INTO app_settings (key, value) VALUES ('calibration_buckets', ?) "
+                "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                (_json.dumps(cal_buckets),),
+            )
         summary["model_name"] = bundle.model_name
         summary["model_run_id"] = bundle.model_run_id
         summary["log_loss"] = bundle.metrics["log_loss"]
@@ -204,13 +225,19 @@ class StudyCoordinator:
         summary["races_synced_now"] = total_races_new
         summary["entries_synced_now"] = total_entries_new
 
+        al = summary.get("adaptive_learning") or {}
+        al_msg = (
+            f" | Autoaprendizado: {al.get('blocked_contexts_count', 0)} perfis bloqueados, "
+            f"{al.get('races_protected_count', 0)} corridas evitadas"
+        )
         self._log_sync(
             "SUCCESS",
             "previsao",
             (
-                f"Estudo concluído ({summary['races_predicted']} corridas). "
+                f"Estudo concluído ({summary['races_predicted']} corridas, "
+                f"{summary['upcoming_races']} futuras). "
                 f"Lay acertou {summary['lay_accuracy_pct']}% | "
-                f"Banca virtual: ${summary['virtual_bankroll']:.2f}"
+                f"Banca: R$ {summary['virtual_bankroll']:.2f}{al_msg}"
             ),
             meta=summary,
         )

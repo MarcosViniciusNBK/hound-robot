@@ -8,6 +8,7 @@ const state = {
   expandedRaces: new Set(),
   ws: null,
   dogCache: [],
+  bankrollInitialized: false,
 };
 
 const byId = (id) => document.getElementById(id);
@@ -19,15 +20,15 @@ function node(tag, className, text) {
   return elem;
 }
 
-function fmtMoney(val, showSign = false) {
+function fmtBRL(val, showSign = false) {
   const num = Number(val || 0);
   const absFormatted = Math.abs(num).toLocaleString("pt-BR", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
-  if (num < 0) return `-$${absFormatted}`;
-  if (showSign && num > 0) return `+$${absFormatted}`;
-  return `$${absFormatted}`;
+  if (num < 0) return `-R$ ${absFormatted}`;
+  if (showSign && num > 0) return `+R$ ${absFormatted}`;
+  return `R$ ${absFormatted}`;
 }
 
 function fmtTime(isoStr) {
@@ -82,12 +83,8 @@ function updateStatusBanner(status) {
   byId("statusMessage").textContent = status.message || "—";
   byId("studyProgress").value = Number(status.progress ?? 0);
   byId("cycleCounter").textContent = `Ciclos: ${status.cycle_count ?? 0}`;
-  byId("lastRunLabel").textContent = `Última atualização: ${formatDateShort(status.last_run_at)}`;
+  byId("lastRunLabel").textContent = `Última atualização: ${status.last_run_at ? fmtTime(status.last_run_at) : "—"}`;
   byId("btnRunStudy").disabled = Boolean(status.running);
-}
-
-function formatDateShort(isoStr) {
-  return isoStr ? fmtTime(isoStr) : "—";
 }
 
 function createLogElement(log) {
@@ -112,7 +109,44 @@ function renderLogs(logs) {
   (logs || []).forEach((log) => list.appendChild(createLogElement(log)));
 }
 
-function renderBankrollChart(curve) {
+function renderUpcomingBets(upcoming) {
+  const card = byId("upcomingCard");
+  const tbody = byId("upcomingBody");
+  tbody.replaceChildren();
+
+  if (!upcoming || !upcoming.length) {
+    card.hidden = true;
+    return;
+  }
+
+  card.hidden = false;
+  byId("upcomingCountBadge").textContent = `${upcoming.length} aberta${upcoming.length > 1 ? "s" : ""}`;
+
+  upcoming.forEach((b) => {
+    const tr = document.createElement("tr");
+    const timePart = (b.race_dt || "").split(" ")[1] || "";
+    tr.appendChild(node("td", "", `${timePart.slice(0, 5)} • ${b.track_name} (P${b.race_number})`));
+
+    const dogTd = document.createElement("td");
+    const cell = node("div", "runner-cell");
+    cell.appendChild(makeTrapBadge(b.trap_number));
+    cell.appendChild(node("strong", "", b.dog_name));
+    dogTd.appendChild(cell);
+    tr.appendChild(dogTd);
+
+    tr.appendChild(node("td", "", `${(Number(b.lose_prob || 0) * 100).toFixed(1)}%`));
+    tr.appendChild(node("td", "", Number(b.lay_odds).toFixed(2)));
+    tr.appendChild(node("td", "", `${fmtBRL(b.stake)} / Risco ${fmtBRL(b.liability)}`));
+
+    const stTd = document.createElement("td");
+    stTd.appendChild(node("span", "badge badge-warning", "Aposta Travada • Aguardando"));
+    tr.appendChild(stTd);
+
+    tbody.appendChild(tr);
+  });
+}
+
+function renderBankrollChart(curve, startBankroll) {
   const box = byId("bankrollChart");
   box.replaceChildren();
   if (!curve || curve.length < 2) {
@@ -120,8 +154,9 @@ function renderBankrollChart(curve) {
     return;
   }
 
+  const base = Number(startBankroll || 1000);
   const ns = "http://www.w3.org/2000/svg";
-  const values = [1000, ...curve.map((c) => Number(c.bankroll_after))];
+  const values = [base, ...curve.map((c) => Number(c.bankroll_after))];
   const minV = Math.min(...values) - 20;
   const maxV = Math.max(...values) + 20;
   const w = 620;
@@ -131,9 +166,9 @@ function renderBankrollChart(curve) {
   const svg = document.createElementNS(ns, "svg");
   svg.setAttribute("viewBox", `0 0 ${w} ${h}`);
   svg.setAttribute("role", "img");
-  svg.setAttribute("aria-label", "Gráfico da evolução da banca virtual");
+  svg.setAttribute("aria-label", "Gráfico da evolução da banca de testes em Reais");
 
-  const baseY = h - pad - ((1000 - minV) / Math.max(maxV - minV, 1)) * (h - pad * 2);
+  const baseY = h - pad - ((base - minV) / Math.max(maxV - minV, 1)) * (h - pad * 2);
   const baseline = document.createElementNS(ns, "line");
   baseline.setAttribute("x1", String(pad));
   baseline.setAttribute("y1", baseY.toFixed(1));
@@ -150,7 +185,7 @@ function renderBankrollChart(curve) {
   });
 
   const lastVal = values[values.length - 1];
-  const color = lastVal >= 1000 ? "#047857" : "#b91c1c";
+  const color = lastVal >= base ? "#047857" : "#b91c1c";
 
   const polyline = document.createElementNS(ns, "polyline");
   polyline.setAttribute("fill", "none");
@@ -164,7 +199,7 @@ function renderBankrollChart(curve) {
   topTxt.setAttribute("y", "16");
   topTxt.setAttribute("fill", "#475569");
   topTxt.setAttribute("font-size", "11");
-  topTxt.textContent = `Máx: ${fmtMoney(Math.max(...values))} • Atual: ${fmtMoney(lastVal)}`;
+  topTxt.textContent = `Máx: ${fmtBRL(Math.max(...values))} • Atual: ${fmtBRL(lastVal)}`;
   svg.appendChild(topTxt);
 
   const botTxt = document.createElementNS(ns, "text");
@@ -172,7 +207,7 @@ function renderBankrollChart(curve) {
   botTxt.setAttribute("y", String(h - 6));
   botTxt.setAttribute("fill", "#475569");
   botTxt.setAttribute("font-size", "11");
-  botTxt.textContent = `Mín: ${fmtMoney(Math.min(...values))} (${curve.length} entradas simuladas)`;
+  botTxt.textContent = `Mín: ${fmtBRL(Math.min(...values))} (${curve.length} liquidações reais)`;
   svg.appendChild(botTxt);
 
   box.appendChild(svg);
@@ -200,34 +235,144 @@ function renderFeatures(features) {
   });
 }
 
+function renderAdaptiveLearning(al) {
+  const badge = byId("adaptiveModeBadge");
+  const bar = byId("adaptiveMetaBar");
+  const tbody = byId("adaptiveBody");
+  bar.replaceChildren();
+  tbody.replaceChildren();
+
+  if (!al || !al.contexts) {
+    badge.className = "badge badge-neutral";
+    badge.textContent = "Aguardando dados";
+    const tr = document.createElement("tr");
+    const td = node("td", "empty-cell", "Aguardando ciclo de aprendizado adaptativo.");
+    td.colSpan = 6;
+    tr.appendChild(td);
+    tbody.appendChild(tr);
+    return;
+  }
+
+  const defensive = Boolean(al.defensive_mode);
+  badge.className = `badge ${defensive ? "badge-warning" : "badge-success"}`;
+  badge.textContent = defensive ? "Modo Defensivo (Drawdown)" : "Modo Normal";
+
+  [
+    `Perfis bloqueados: ${al.blocked_contexts_count ?? 0}`,
+    `Entradas evitadas pelos bloqueios: ${al.races_protected_count ?? 0}`,
+    `+EV mínimo ativo: ${((al.active_min_ev ?? 0.01) * 100).toFixed(1)}%`,
+    `Risco máx ativo/aposta: ${al.active_max_risk_pct ?? 15}%`,
+  ].forEach((txt) => bar.appendChild(node("span", "", txt)));
+
+  if (!al.contexts.length) {
+    const tr = document.createElement("tr");
+    const td = node("td", "empty-cell", "Nenhum contexto atingiu amostra mínima ainda.");
+    td.colSpan = 6;
+    tr.appendChild(td);
+    tbody.appendChild(tr);
+    return;
+  }
+
+  al.contexts.forEach((c) => {
+    const tr = document.createElement("tr");
+    tr.appendChild(node("td", "", c.context));
+    tr.appendChild(node("td", "", c.bets));
+    tr.appendChild(node("td", "", `${c.win_pct}%`));
+    tr.appendChild(node("td", c.roi_pct >= 0 ? "text-success" : "text-danger", `${c.roi_pct}%`));
+    tr.appendChild(node("td", "", `${c.pred_win_pct}% vs ${c.actual_win_pct}%`));
+    const stTd = document.createElement("td");
+    const isBlocked = c.status === "BLOQUEADO";
+    stTd.appendChild(node("span", `badge ${isBlocked ? "badge-danger" : "badge-success"}`, c.status));
+    tr.appendChild(stTd);
+    tbody.appendChild(tr);
+  });
+}
+
+function renderRiskAndCalibration(rules, bt, buckets) {
+  const bar = byId("simRulesBar");
+  bar.replaceChildren();
+  const r = rules || {};
+  const b = bt || {};
+  [
+    `Comissão Exchange: ${r.commission_pct ?? 5}%`,
+    `Spread + Slippage: +${r.spread_pct ?? 5}% + ${r.slippage_ticks ?? 1} tick`,
+    `Risco máx/aposta: ${r.max_risk_pct ?? 15}%`,
+    `Drawdown Máx: -${fmtBRL(b.max_drawdown_brl ?? 0)} (${b.max_drawdown_pct ?? 0}%)`,
+    `Profit Factor: ${b.profit_factor ?? 0}`,
+    `Expectativa/Aposta: ${fmtBRL(b.expectancy_brl ?? 0, true)}`,
+  ].forEach((txt) => bar.appendChild(node("span", "", txt)));
+
+  const calBody = byId("calibrationBody");
+  calBody.replaceChildren();
+  if (!buckets || !buckets.length) {
+    const tr = document.createElement("tr");
+    const td = node("td", "empty-cell", "Aguardando ciclo de calibração.");
+    td.colSpan = 5;
+    tr.appendChild(td);
+    calBody.appendChild(tr);
+    return;
+  }
+  buckets.forEach((bk) => {
+    const tr = document.createElement("tr");
+    tr.appendChild(node("td", "", bk.band));
+    tr.appendChild(node("td", "", bk.count));
+    tr.appendChild(node("td", "", `${bk.pred_win_pct}%`));
+    tr.appendChild(node("td", "", `${bk.actual_win_pct}%`));
+    tr.appendChild(node("td", "text-success", `${bk.actual_lose_pct}%`));
+    calBody.appendChild(tr);
+  });
+}
+
 function renderOverview(data) {
   updateStatusBanner(data.status);
 
   const paper = data.paper_summary || {};
+  const bt = data.backtest_summary || {};
   const totals = data.totals || {};
   const model = data.latest_model;
 
-  const currentBankroll = paper.current_bankroll ?? 1000;
+  const startBankroll = paper.start_bankroll ?? 100;
+  const layStake = paper.lay_stake ?? 2;
+  if (!state.bankrollInitialized) {
+    byId("cfgBankrollStart").value = String(startBankroll);
+    byId("cfgLayStake").value = String(layStake);
+    state.bankrollInitialized = true;
+  }
+
+  const currentBankroll = paper.current_bankroll ?? startBankroll;
+  const availBalance = paper.available_balance ?? currentBankroll;
+  const committedRisk = paper.committed_liability ?? 0;
   const netPnl = paper.total_pnl ?? 0;
   const isProfit = netPnl >= 0;
 
-  byId("kpiBankroll").textContent = fmtMoney(currentBankroll);
+  byId("kpiBankroll").textContent = fmtBRL(currentBankroll);
   const badge = byId("kpiProfitBadge");
   badge.className = `badge ${isProfit ? "badge-success" : "badge-danger"}`;
-  badge.textContent = isProfit ? `LUCRO ${fmtMoney(netPnl, true)}` : `PREJUÍZO ${fmtMoney(netPnl)}`;
-  byId("kpiBankrollSub").textContent = `Inicial: ${fmtMoney(paper.start_bankroll ?? 1000)} • ROI: ${paper.roi_pct ?? 0}%`;
+  badge.textContent = isProfit ? `LUCRO ${fmtBRL(netPnl, true)}` : `PREJUÍZO ${fmtBRL(netPnl)}`;
+  byId("kpiBankrollSub").textContent = `Saldo livre: ${fmtBRL(availBalance)} • Em risco: ${fmtBRL(committedRisk)} • Stake: ${fmtBRL(layStake)}`;
 
-  byId("kpiTotalWon").textContent = fmtMoney(paper.total_won_amount ?? 0, true);
-  byId("kpiTotalLost").textContent = `-${fmtMoney(paper.total_lost_amount ?? 0)}`;
-  byId("kpiWinLossSub").textContent = `${paper.won_bets ?? 0} acertos / ${paper.lost_bets ?? 0} erros (${paper.total_bets ?? 0} simulações)`;
+  byId("kpiTotalWon").textContent = fmtBRL(paper.total_won_amount ?? 0, true);
+  byId("kpiTotalLost").textContent = `-${fmtBRL(paper.total_lost_amount ?? 0)}`;
+  byId("kpiWinLossSub").textContent = `${paper.won_bets ?? 0} acertos / ${paper.lost_bets ?? 0} erros ao vivo (ROI: ${paper.roi_pct ?? 0}%)`;
 
-  byId("kpiLayAcc").textContent = `${paper.win_rate_pct ?? (model?.lay_accuracy ?? 0)}%`;
-  byId("kpiLaySub").textContent = "Aposta no galgo que perderá (sem 1º nem último)";
+  const hasLiveSettled = (paper.total_bets ?? 0) > 0;
+  byId("kpiLayAcc").textContent = hasLiveSettled
+    ? `${paper.win_rate_pct}%`
+    : `${bt.win_rate_pct ?? (model?.lay_accuracy ?? 0)}%`;
+  byId("kpiLaySub").textContent = hasLiveSettled
+    ? `Banca ao vivo (${paper.total_bets} liquidadas) • Estudo: ${bt.win_rate_pct ?? 0}%`
+    : `Estudo histórico (${bt.total_bets ?? 0} corridas) • Aguardando 1ª corrida ao vivo`;
+  const pendingCount = paper.pending_bets ?? 0;
+  const pBadge = byId("kpiPendingBadge");
+  pBadge.className = `badge ${pendingCount > 0 ? "badge-warning" : "badge-neutral"}`;
+  pBadge.textContent = `${pendingCount} aberta${pendingCount === 1 ? "" : "s"}`;
 
   byId("kpiRaces").textContent = `${totals.total_races ?? 0} corridas`;
   byId("kpiModelSub").textContent = model
     ? `${model.model_name} • Log-Loss: ${Number(model.log_loss).toFixed(4)} • ${totals.total_dogs ?? 0} galgos`
     : "Aguardando primeiro ciclo";
+
+  renderUpcomingBets(data.upcoming_bets);
 
   // Dates dropdown
   const dateSel = byId("dateSelect");
@@ -250,8 +395,14 @@ function renderOverview(data) {
     byId("customDateInput").value = state.selectedDate;
   }
 
-  renderBankrollChart(data.bankroll_curve);
+  renderBankrollChart(data.bankroll_curve, startBankroll);
   renderFeatures(data.feature_importances);
+  renderRiskAndCalibration(data.simulation_rules, bt, data.calibration_buckets);
+  renderAdaptiveLearning(data.adaptive_learning);
+
+  if (data.simulation_rules?.betfair_hist_dir) {
+    byId("bfHistDesc").textContent = `Coloque arquivos gratuitos (.tar.bz2 / .bz2) do Betfair Historical Data em "${data.simulation_rules.betfair_hist_dir}" (${data.simulation_rules.exchange_entries_count} entradas já vinculadas).`;
+  }
 
   // Model history
   const mhBody = byId("modelHistoryBody");
@@ -293,7 +444,7 @@ function renderOverview(data) {
       tr.appendChild(dogTd);
       tr.appendChild(node("td", "", `${(Number(e.win_prob) * 100).toFixed(1)}%`));
       tr.appendChild(node("td", "", Number(e.lay_odds).toFixed(2)));
-      tr.appendChild(node("td", "text-danger", `-${fmtMoney(e.liability)}`));
+      tr.appendChild(node("td", "text-danger", `-${fmtBRL(e.liability)}`));
       tr.appendChild(node("td", "", e.error_reason || "—"));
       errBody.appendChild(tr);
     });
@@ -324,7 +475,7 @@ function buildDetailRow(race) {
   const tbl = node("table", "data-table");
   const thead = document.createElement("thead");
   const hrow = document.createElement("tr");
-  ["Rank", "Trap / Galgo", "Prob. Ganhar", "Prob. Perder", "Forma", "Odd SP", "Chegada"].forEach((h) => {
+  ["Rank", "Trap / Galgo", "Prob. Ganhar", "Prob. Perder", "Forma", "Odd SP", "Chegada Real"].forEach((h) => {
     const th = node("th", "", h);
     th.scope = "col";
     hrow.appendChild(th);
@@ -351,7 +502,7 @@ function buildDetailRow(race) {
     rtr.appendChild(node("td", "", d.lose_prob != null ? `${(d.lose_prob * 100).toFixed(1)}%` : "—"));
     rtr.appendChild(node("td", "", d.stats?.recent_form || "—"));
     rtr.appendChild(node("td", "", d.decimal_odds ? Number(d.decimal_odds).toFixed(2) : "—"));
-    const posText = d.result_position ? (d.result_position === 1 ? "1º (Vencedor)" : `${d.result_position}º`) : "—";
+    const posText = d.result_position ? (d.result_position === 1 ? "1º (Vencedor)" : `${d.result_position}º`) : "Aguardando";
     rtr.appendChild(node("td", d.result_position === 1 ? "text-success" : "", posText));
     tbody.appendChild(rtr);
   });
@@ -393,11 +544,12 @@ function renderRaces() {
     // 1. Horário / Pista
     const tdRace = document.createElement("td");
     tdRace.appendChild(node("strong", "", `${(r.race_time || "").slice(0, 5)} • ${r.track_name}`));
+    const kindTxt = r.is_completed ? "" : " • FUTURA";
     tdRace.appendChild(
       node(
         "div",
         "meta-inline",
-        `Páreo ${r.race_number} • ${r.race_class || "—"} • ${r.race_distance ? Math.round(r.race_distance) + "m" : "—"}`
+        `Páreo ${r.race_number} • ${r.race_class || "—"} • ${r.race_distance ? Math.round(r.race_distance) + "m" : "—"}${kindTxt}`
       )
     );
     tr.appendChild(tdRace);
@@ -412,7 +564,9 @@ function renderRaces() {
       tdLay.appendChild(cell);
       const rankInfo = `${lp.predicted_rank ?? "—"}º de ${r.active_runners || (r.runners || []).length}`;
       const losePct = lp.lose_prob != null ? `${(lp.lose_prob * 100).toFixed(1)}% perde` : "";
-      const oddTxt = lp.decimal_odds ? ` • Odd ${Number(lp.decimal_odds).toFixed(2)}` : "";
+      const pb = r.paper_bet;
+      const oddShow = lp.decimal_odds || pb?.lay_odds;
+      const oddTxt = oddShow ? ` • Odd ${Number(oddShow).toFixed(2)}` : "";
       tdLay.appendChild(node("div", "meta-inline", `${rankInfo} • ${losePct}${oddTxt}`));
     } else {
       tdLay.textContent = "—";
@@ -442,22 +596,31 @@ function renderRaces() {
     } else if (r.lay_outcome === "ERROU_LAY") {
       tdStatus.appendChild(node("span", "badge badge-danger", "Errou"));
     } else {
-      tdStatus.appendChild(node("span", "badge badge-neutral", "Pendente"));
+      tdStatus.appendChild(node("span", "badge badge-warning", "Aposta Aberta"));
     }
     if (r.actual_winner) {
       tdStatus.appendChild(node("div", "meta-inline", `Vencedor: T${r.actual_winner.trap_number} ${r.actual_winner.dog_name}`));
+    } else {
+      tdStatus.appendChild(node("div", "meta-inline", "Aguardando resultado real"));
     }
     tr.appendChild(tdStatus);
 
-    // 5. Resultado Simulado
+    // 5. Resultado (R$)
     const tdPnl = document.createElement("td");
     const pb = r.paper_bet;
     if (pb && pb.status === "WON_LAY") {
-      tdPnl.appendChild(node("strong", "text-success", fmtMoney(pb.pnl, true)));
-      tdPnl.appendChild(node("div", "meta-inline", `Stake $${pb.stake}`));
+      tdPnl.appendChild(node("strong", "text-success", fmtBRL(pb.pnl, true)));
+      const tag = pb.placed_before_race ? "Ao vivo pré-corrida" : "Backtest histórico";
+      tdPnl.appendChild(node("div", "meta-inline", tag));
     } else if (pb && pb.status === "LOST_LAY") {
-      tdPnl.appendChild(node("strong", "text-danger", fmtMoney(pb.pnl)));
-      tdPnl.appendChild(node("div", "meta-inline", `Risco $${pb.liability}`));
+      tdPnl.appendChild(node("strong", "text-danger", fmtBRL(pb.pnl)));
+      const tag = pb.placed_before_race ? "Ao vivo pré-corrida" : "Backtest histórico";
+      tdPnl.appendChild(node("div", "meta-inline", tag));
+    } else if (pb && pb.status === "PENDING") {
+      tdPnl.appendChild(node("strong", "", `Stake ${fmtBRL(pb.stake)}`));
+      tdPnl.appendChild(node("div", "meta-inline", `Risco ${fmtBRL(pb.liability)}`));
+    } else if (!r.is_completed) {
+      tdPnl.appendChild(node("span", "meta-inline", "Aguardando saldo livre"));
     } else if (r.lay_outcome !== "PENDENTE") {
       tdPnl.appendChild(node("span", "meta-inline", "Fora da faixa de odd"));
     } else {
@@ -468,7 +631,7 @@ function renderRaces() {
     // 6. Detalhes toggle
     const tdBtn = document.createElement("td");
     const isExpanded = state.expandedRaces.has(r.race_id);
-    const btn = node("button", "btn btn-link", isExpanded ? "Ocultar" : "Ver 6 traps");
+    const btn = node("button", "btn btn-link", isExpanded ? "Ocultar" : "Ver traps");
     btn.type = "button";
     btn.setAttribute("aria-expanded", String(isExpanded));
     btn.addEventListener("click", () => {
@@ -530,9 +693,9 @@ async function loadRaces() {
     `Data: ${data.date || "—"}`,
     `Corridas: ${ds.total_races ?? 0}`,
     `Acertos Lay: ${ds.lay_hits ?? 0}/${ds.lay_total ?? 0} (${ds.lay_pct ?? 0}%)`,
-    `Ganhou no dia: ${fmtMoney(ds.day_won_amount ?? 0, true)}`,
-    `Perdeu no dia: -${fmtMoney(ds.day_lost_amount ?? 0)}`,
-    `Saldo do dia: ${fmtMoney(ds.day_net_pnl ?? 0, true)}`,
+    `Ganhou no dia: ${fmtBRL(ds.day_won_amount ?? 0, true)}`,
+    `Perdeu no dia: -${fmtBRL(ds.day_lost_amount ?? 0)}`,
+    `Saldo do dia: ${fmtBRL(ds.day_net_pnl ?? 0, true)}`,
   ].forEach((txt) => bar.appendChild(node("span", "", txt)));
 
   renderRaces();
@@ -632,6 +795,27 @@ function buildSimulatorGrid() {
   }
 }
 
+byId("bankrollForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const bankrollStart = parseFloat(byId("cfgBankrollStart").value);
+  const layStake = parseFloat(byId("cfgLayStake").value);
+  if (!Number.isFinite(bankrollStart) || bankrollStart < 10 || !Number.isFinite(layStake) || layStake < 1) {
+    return;
+  }
+  const btn = byId("btnSaveBankroll");
+  btn.disabled = true;
+  try {
+    await fetch("/api/settings/bankroll", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ bankroll_start: bankrollStart, lay_stake: layStake, reset_live: true }),
+    });
+    await refreshAll();
+  } finally {
+    btn.disabled = false;
+  }
+});
+
 byId("btnRunSim").addEventListener("click", async () => {
   const runners = [];
   document.querySelectorAll(".sim-runner").forEach((row) => {
@@ -723,6 +907,21 @@ byId("trackSelect").addEventListener("change", async (e) => {
 byId("searchInput").addEventListener("input", (e) => {
   state.searchQuery = e.target.value;
   renderRaces();
+});
+
+byId("btnImportBf").addEventListener("click", async () => {
+  const btn = byId("btnImportBf");
+  const st = byId("bfImportStatus");
+  btn.disabled = true;
+  st.textContent = "Escaneando arquivos...";
+  try {
+    const resp = await fetch("/api/import/betfair-historical", { method: "POST" });
+    const data = await resp.json();
+    st.textContent = `${data.files_scanned} arquivo(s) • ${data.prices_parsed} preços • ${data.entries_updated} entradas atualizadas.`;
+    await refreshAll();
+  } finally {
+    btn.disabled = false;
+  }
 });
 
 buildSimulatorGrid();

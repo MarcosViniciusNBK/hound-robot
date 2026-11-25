@@ -58,6 +58,7 @@ CREATE TABLE IF NOT EXISTS entries (
     trainer_name TEXT,
     sp_str TEXT,
     decimal_odds REAL,
+    exchange_lay_odds REAL,
     market_pos INTEGER,
     result_position INTEGER,
     is_winner INTEGER DEFAULT 0,
@@ -149,6 +150,8 @@ CREATE TABLE IF NOT EXISTS paper_bets (
     win_prob REAL NOT NULL,
     lose_prob REAL NOT NULL,
     lay_odds REAL NOT NULL,
+    odds_source TEXT DEFAULT 'SP_REAL',
+    placed_before_race INTEGER DEFAULT 0,
     stake REAL NOT NULL,
     liability REAL NOT NULL,
     actual_position INTEGER,
@@ -157,6 +160,33 @@ CREATE TABLE IF NOT EXISTS paper_bets (
     bankroll_after REAL NOT NULL,
     error_reason TEXT,
     created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS backtest_bets (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    race_id INTEGER NOT NULL UNIQUE,
+    iso_date TEXT NOT NULL,
+    race_dt TEXT NOT NULL,
+    track_name TEXT NOT NULL,
+    race_number INTEGER NOT NULL,
+    trap_number INTEGER NOT NULL,
+    dog_name TEXT NOT NULL,
+    win_prob REAL NOT NULL,
+    lose_prob REAL NOT NULL,
+    lay_odds REAL NOT NULL,
+    stake REAL NOT NULL,
+    liability REAL NOT NULL,
+    actual_position INTEGER,
+    status TEXT NOT NULL,
+    pnl REAL NOT NULL,
+    bankroll_after REAL NOT NULL,
+    error_reason TEXT,
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS app_settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS study_logs (
@@ -174,7 +204,48 @@ def init_db(db_path: Path) -> None:
     db_path.parent.mkdir(parents=True, exist_ok=True)
     with sqlite3.connect(db_path) as conn:
         conn.executescript(SCHEMA_SQL)
+        # Safe lightweight migrations for existing SQLite files
+        cols = {
+            row[1]
+            for row in conn.execute("PRAGMA table_info(paper_bets)").fetchall()
+        }
+        if "odds_source" not in cols:
+            conn.execute("ALTER TABLE paper_bets ADD COLUMN odds_source TEXT DEFAULT 'SP_REAL'")
+        if "placed_before_race" not in cols:
+            conn.execute("ALTER TABLE paper_bets ADD COLUMN placed_before_race INTEGER DEFAULT 0")
+        entry_cols = {
+            row[1]
+            for row in conn.execute("PRAGMA table_info(entries)").fetchall()
+        }
+        if "exchange_lay_odds" not in entry_cols:
+            conn.execute("ALTER TABLE entries ADD COLUMN exchange_lay_odds REAL")
         conn.commit()
+
+
+def get_bankroll_config(db_path: Path, default_start: float, default_stake: float) -> tuple[float, float]:
+    with sqlite3.connect(db_path) as conn:
+        rows = dict(
+            conn.execute(
+                "SELECT key, value FROM app_settings WHERE key IN ('bankroll_start', 'lay_stake')"
+            ).fetchall()
+        )
+    start = float(rows.get("bankroll_start", default_start))
+    stake = float(rows.get("lay_stake", default_stake))
+    return start, stake
+
+
+def save_bankroll_config(db_path: Path, bankroll_start: float, lay_stake: float) -> None:
+    with get_conn(db_path) as conn:
+        conn.execute(
+            "INSERT INTO app_settings (key, value) VALUES ('bankroll_start', ?) "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            (str(round(bankroll_start, 2)),),
+        )
+        conn.execute(
+            "INSERT INTO app_settings (key, value) VALUES ('lay_stake', ?) "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            (str(round(lay_stake, 2)),),
+        )
 
 
 @contextmanager

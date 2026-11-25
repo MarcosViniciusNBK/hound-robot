@@ -152,3 +152,220 @@ def test_end_to_end_pipeline_and_api(tmp_path: Path, monkeypatch) -> None:
         sim_json = sim.json()
         assert sim_json["probable_winner"]["dog_name"] == "Hound_1"
         assert 1 < sim_json["lay_pick"]["predicted_rank"] < 4
+
+        # Test bankroll config update in BRL
+        cfg = client.post(
+            "/api/settings/bankroll",
+            json={"bankroll_start": 2500.0, "lay_stake": 50.0},
+        )
+        assert cfg.status_code == 200
+        assert cfg.json()["bankroll_start"] == 2500.0
+        assert cfg.json()["lay_stake"] == 50.0
+
+
+def test_upcoming_bet_locks_and_settles_with_true_result(tmp_path: Path, monkeypatch) -> None:
+    from datetime import datetime, timedelta, timezone
+
+    future_dt = datetime.now(timezone.utc) + timedelta(hours=2)
+    future_date_uk = future_dt.strftime("%d/%m/%Y")
+    future_time_str = future_dt.strftime("%H:%M:%S")
+
+    db_file = tmp_path / "test_live.db"
+    models_dir = tmp_path / "models"
+    models_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(settings, "db_path", db_file)
+    monkeypatch.setattr(settings, "models_dir", models_dir)
+
+    init_db(db_file)
+    for idx, day in enumerate(["20/11/2026", "21/11/2026", "22/11/2026"], start=1):
+        store_meeting_payload(db_file, _make_synthetic_meeting(600 + idx, day, n_races=6))
+
+    # Add an upcoming race (no results yet!)
+    upcoming_meeting = {
+        "meetingId": 699,
+        "meetingDate": future_date_uk,
+        "trackName": "Nottingham",
+        "races": [
+            {
+                "raceId": 69901,
+                "raceTime": future_time_str,
+                "raceDate": future_date_uk,
+                "raceNumber": "1",
+                "raceType": "Flat",
+                "raceClass": "A1",
+                "raceDistance": 480.0,
+                "traps": [
+                    {"trapNumber": str(t), "dogId": 1000 + t, "dogName": f"Hound_{t}", "trainerName": f"Trainer_{t}"}
+                    for t in range(1, 7)
+                ],
+            }
+        ],
+    }
+    store_meeting_payload(db_file, upcoming_meeting)
+
+    samples, _ = build_chronological_dataset(db_file)
+    bundle = train_and_evaluate(db_file, samples)
+    probs = walk_forward_out_of_sample_probs(samples, model_name=bundle.model_name)
+    res1 = persist_predictions_and_paper_bets(db_file, samples, probs, bundle.model_run_id)
+    assert res1["upcoming_races"] == 1
+    assert res1["pending_bets"] == 1
+
+    # Now simulate that the true result arrives where the locked dog unexpectedly WON (pos=1)!
+    from app.db import get_conn
+
+    with get_conn(db_file) as conn:
+        pending = conn.execute("SELECT trap_number, dog_name FROM paper_bets WHERE race_id = 69901").fetchone()
+    locked_trap = int(pending["trap_number"])
+
+    completed_traps = []
+    for t in range(1, 7):
+        pos = 1 if t == locked_trap else (2 if t == 1 else t)
+        completed_traps.append(
+            {
+                "trapNumber": str(t),
+                "dogId": 1000 + t,
+                "dogName": f"Hound_{t}",
+                "trainerName": f"Trainer_{t}",
+                "SP": "4/1",
+                "resultPriceNumerator": 4,
+                "resultPriceDenominator": 1,
+                "resultPosition": pos,
+                "resultSectionalTime": "4.50",
+                "resultRunTime": "29.00",
+                "resultAdjustedTime": "29.00",
+            }
+        )
+    upcoming_meeting["races"][0]["traps"] = completed_traps
+    store_meeting_payload(db_file, upcoming_meeting)
+
+    samples2, _ = build_chronological_dataset(db_file)
+    probs2 = walk_forward_out_of_sample_probs(samples2, model_name=bundle.model_name)
+    res2 = persist_predictions_and_paper_bets(db_file, samples2, probs2, bundle.model_run_id)
+    assert res2["pending_bets"] == 0
+    assert res2["live_settled_bets"] == 1
+
+    with get_conn(db_file) as conn:
+        settled = conn.execute("SELECT trap_number, status, placed_before_race, pnl FROM paper_bets WHERE race_id = 69901").fetchone()
+    assert int(settled["trap_number"]) == locked_trap
+    assert int(settled["placed_before_race"]) == 1
+    assert settled["status"] == "LOST_LAY"
+    assert float(settled["pnl"]) < 0.0
+
+
+def test_live_bankroll_respects_available_balance(tmp_path: Path, monkeypatch) -> None:
+    from datetime import datetime, timedelta, timezone
+    from app.db import save_bankroll_config
+
+    db_file = tmp_path / "test_cap.db"
+    models_dir = tmp_path / "models"
+    models_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(settings, "db_path", db_file)
+    monkeypatch.setattr(settings, "models_dir", models_dir)
+
+    init_db(db_file)
+    save_bankroll_config(db_file, bankroll_start=100.0, lay_stake=4.0)
+    for idx, day in enumerate(["20/11/2026", "21/11/2026", "22/11/2026"], start=1):
+        store_meeting_payload(db_file, _make_synthetic_meeting(700 + idx, day, n_races=6))
+
+    # Create 12 upcoming races; with R$ 100 bankroll & 15% risk cap, not all 12 fit simultaneously
+    future_dt = datetime.now(timezone.utc) + timedelta(hours=2)
+    upcoming_meeting = {
+        "meetingId": 799,
+        "meetingDate": future_dt.strftime("%d/%m/%Y"),
+        "trackName": "Nottingham",
+        "races": [
+            {
+                "raceId": 79900 + r,
+                "raceTime": (future_dt + timedelta(minutes=8 * r)).strftime("%H:%M:%S"),
+                "raceDate": future_dt.strftime("%d/%m/%Y"),
+                "raceNumber": str(r),
+                "raceType": "Flat",
+                "raceClass": "A1",
+                "raceDistance": 480.0,
+                "traps": [
+                    {"trapNumber": str(t), "dogId": 1000 + t, "dogName": f"Hound_{t}", "trainerName": f"Trainer_{t}"}
+                    for t in range(1, 7)
+                ],
+            }
+            for r in range(1, 13)
+        ],
+    }
+    store_meeting_payload(db_file, upcoming_meeting)
+
+    samples, _ = build_chronological_dataset(db_file)
+    bundle = train_and_evaluate(db_file, samples)
+    probs = walk_forward_out_of_sample_probs(samples, model_name=bundle.model_name)
+    res = persist_predictions_and_paper_bets(db_file, samples, probs, bundle.model_run_id)
+
+    assert res["bankroll_start"] == 100.0
+    assert res["virtual_bankroll"] == 100.0
+    assert res["committed_liability"] <= 100.0
+    assert res["available_balance"] >= 0.0
+    assert 1 <= res["pending_bets"] < 12
+
+
+def test_exchange_ticks_and_betfair_stream_parser() -> None:
+    from app.betfair_hist import normalize_dog_name, parse_betfair_stream_lines
+    from app.lay_engine import compute_portfolio_metrics, snap_to_exchange_tick
+
+    assert snap_to_exchange_tick(2.03) == 2.04
+    assert snap_to_exchange_tick(4.12) == 4.2
+    assert snap_to_exchange_tick(6.35, extra_ticks=1) == 6.6
+
+    metrics = compute_portfolio_metrics([1.9, 1.9, -8.0, 1.9], 100.0)
+    assert metrics["max_drawdown_brl"] == 8.0
+    assert metrics["max_win_streak"] == 2
+    assert metrics["max_loss_streak"] == 1
+
+    assert normalize_dog_name("4. Lisnakill Donnie") == "lisnakilldonnie"
+    sample_lines = [
+        '{"op":"mcm","mc":[{"id":"1.2345","marketDefinition":{"eventTypeId":"4339","marketType":"WIN","venue":"Nottingham","marketTime":"2026-11-23T18:37:00.000Z","inPlay":false,"runners":[{"id":101,"name":"4. Lisnakill Donnie"},{"id":102,"name":"1. Blastoff Tony"}]},"rc":[{"id":101,"ltp":5.5},{"id":102,"batl":[[0,4.2,50]]}]}]}'
+    ]
+    parsed = parse_betfair_stream_lines(sample_lines)
+    assert len(parsed) == 2
+    by_dog = {x["dog_norm"]: x["lay_price"] for x in parsed}
+    assert by_dog["lisnakilldonnie"] == 5.6  # 5.5 + 1 tick (0.1)
+    assert by_dog["blastofftony"] == 4.2
+
+
+def test_adaptive_context_tracker_blocks_losing_context() -> None:
+    import numpy as np
+    from app.adaptive_learner import AdaptiveContextTracker
+    from app.features import FEATURE_NAMES, RunnerSample
+
+    tracker = AdaptiveContextTracker(min_samples=25, min_roi_pct=-10.0)
+    sample = RunnerSample(
+        race_id=1,
+        race_dt="2026-11-25 18:00:00",
+        iso_date="2026-11-25",
+        track_name="BadTrack",
+        race_number=1,
+        trap_number=4,
+        dog_id=999,
+        dog_name="TestDog",
+        decimal_odds=5.0,
+        result_position=1,
+        is_winner=1,
+        features=np.zeros(len(FEATURE_NAMES)),
+        summary={},
+        race_distance=280.0,
+        race_class="D2",
+    )
+
+    # Record 25 losing outcomes at BadTrack
+    for _ in range(25):
+        tracker.record_outcome(
+            sample=sample,
+            lay_odds=5.0,
+            win_prob=0.15,
+            liability=8.0,
+            pnl=-8.0,
+            is_lay_win=False,
+        )
+
+    allowed, reason = tracker.check_context_allowed(sample, 5.0)
+    assert allowed is False
+    assert reason is not None and "BadTrack" in reason
+    summary = tracker.export_summary(100.0)
+    assert summary["blocked_contexts_count"] >= 1
+    assert summary["defensive_mode"] is True
