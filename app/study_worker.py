@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import sys
 from datetime import date, timedelta
 from typing import Any
 
@@ -83,15 +84,18 @@ class StudyCoordinator:
         self._emit_sync({"type": "status", "status": dict(self.state)})
 
     def _log_sync(self, level: str, phase: str, message: str, meta: dict[str, Any] | None = None) -> None:
-        entry = log_study_event(
-            settings.db_path,
-            utc_now_iso(),
-            level,
-            phase,
-            message,
-            meta=meta,
-        )
-        self._emit_sync({"type": "log", "log": entry})
+        try:
+            entry = log_study_event(
+                settings.db_path,
+                utc_now_iso(),
+                level,
+                phase,
+                message,
+                meta=meta,
+            )
+            self._emit_sync({"type": "log", "log": entry})
+        except Exception as exc:
+            print(f"[study_worker] failed to persist study log ({phase}): {exc}", file=sys.stderr, flush=True)
 
     def _run_cycle_blocking(self, days: int, target_date: str | None) -> dict[str, Any]:
         client = GBGBClient()
@@ -266,16 +270,20 @@ class StudyCoordinator:
         self._stop_event.clear()
 
         async def _runner() -> None:
-            # Immediate first study cycle on startup
-            await self.run_study_cycle()
+            # Immediate first study cycle on startup; guard loop so transient errors never kill scheduler
             while not self._stop_event.is_set():
+                try:
+                    await self.run_study_cycle()
+                except Exception as exc:
+                    print(f"[study_worker] unhandled cycle error: {exc}", file=sys.stderr, flush=True)
+                    self._update_status_sync("error", 0, f"Erro inesperado: {exc}", running=False)
                 try:
                     await asyncio.wait_for(
                         self._stop_event.wait(),
                         timeout=settings.study_interval_sec,
                     )
                 except asyncio.TimeoutError:
-                    await self.run_study_cycle()
+                    continue
 
         self._bg_task = asyncio.create_task(_runner())
 

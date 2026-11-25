@@ -380,3 +380,23 @@ def test_adaptive_context_tracker_blocks_losing_context() -> None:
     summary = tracker.export_summary(100.0)
     assert summary["blocked_contexts_count"] >= 1
     assert summary["defensive_mode"] is True
+
+
+def test_study_coordinator_recovers_if_db_logging_fails(tmp_path: Path, monkeypatch) -> None:
+    import asyncio
+    import sqlite3
+    from app.study_worker import StudyCoordinator
+
+    # Point settings.db_path to a non-writable path/failing log call
+    monkeypatch.setattr(settings, "db_path", tmp_path / "missing_dir" / "readonly.db")
+
+    coord = StudyCoordinator()
+
+    def _boom(*args, **kwargs):
+        raise sqlite3.OperationalError("attempt to write a readonly database")
+
+    monkeypatch.setattr(coord, "_run_cycle_blocking", _boom)
+    res = asyncio.run(coord.run_study_cycle())
+    assert res["status"] == "error"
+    assert coord.state["running"] is False
+    assert coord.state["phase"] == "error"

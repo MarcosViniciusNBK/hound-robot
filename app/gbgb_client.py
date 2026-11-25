@@ -106,7 +106,7 @@ class GBGBClient:
         if elapsed < self.delay_sec:
             time.sleep(self.delay_sec - elapsed)
         url = f"{self.base_url}/{path.lstrip('/')}"
-        resp = self.session.get(url, params=params, timeout=20)
+        resp = self.session.get(url, params=params, timeout=(10, 20))
         self._last_req_ts = time.monotonic()
         resp.raise_for_status()
         return resp.json()
