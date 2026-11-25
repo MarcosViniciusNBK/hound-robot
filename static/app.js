@@ -47,7 +47,7 @@ function makeTrapBadge(trapNum) {
   return node("span", `trap-badge ${cls}`, n);
 }
 
-// Navigation tabs (Sidebar WAI-ARIA tablist)
+// Sidebar tabs
 const tabButtons = Array.from(document.querySelectorAll('[role="tab"]'));
 function activateTab(targetBtn) {
   tabButtons.forEach((btn) => {
@@ -82,10 +82,9 @@ tabButtons.forEach((btn, idx) => {
   });
 });
 
-// Sidebar collapse + mobile toggle
 byId("btnCollapseSidebar").addEventListener("click", () => {
-  const frame = document.querySelector(".app-frame");
-  const collapsed = frame.classList.toggle("is-collapsed");
+  const shell = document.querySelector(".shell");
+  const collapsed = shell.classList.toggle("is-collapsed");
   byId("btnCollapseSidebar").setAttribute("aria-expanded", String(!collapsed));
 });
 
@@ -93,11 +92,9 @@ byId("btnMobileMenu").addEventListener("click", () => {
   byId("sidebar").classList.toggle("is-open");
 });
 
-// Quick jumps
 byId("btnJumpRaces").addEventListener("click", () => activateTab(byId("tabBtn-races")));
 byId("btnJumpPerf").addEventListener("click", () => activateTab(byId("tabBtn-performance")));
 
-// Bankroll modal (<dialog>)
 const modal = byId("bankrollModal");
 byId("btnOpenBankrollModal").addEventListener("click", () => modal.showModal());
 byId("btnCloseModal").addEventListener("click", () => modal.close());
@@ -109,8 +106,8 @@ function updateStatusBanner(status) {
   byId("phasePill").textContent = String(status.phase || "idle").toUpperCase();
   byId("statusMessage").textContent = status.message || "—";
   byId("studyProgress").value = Number(status.progress ?? 0);
-  byId("cycleCounter").textContent = `Ciclo #${status.cycle_count ?? 0}`;
-  byId("lastRunLabel").textContent = `Atualizado: ${status.last_run_at ? fmtTime(status.last_run_at) : "—"}`;
+  byId("cycleCounter").textContent = `#${status.cycle_count ?? 0}`;
+  byId("lastRunLabel").textContent = status.last_run_at ? fmtTime(status.last_run_at) : "—";
   byId("botPulse").classList.toggle("is-busy", running);
   byId("btnRunStudy").disabled = running;
 }
@@ -118,7 +115,7 @@ function updateStatusBanner(status) {
 function createLogElement(log) {
   const row = node("div", `log-item ${log.level || "INFO"}`);
   row.appendChild(node("span", "log-time", fmtTime(log.created_at)));
-  row.appendChild(node("span", "log-phase", log.phase || "sistema"));
+  row.appendChild(node("span", "log-phase", log.phase || "sys"));
   row.appendChild(node("span", "", log.message || ""));
   return row;
 }
@@ -148,45 +145,34 @@ function renderBankrollChart(data) {
 
   let curve = [];
   if (isLive) {
-    // Build live curve from live_settled_bets inside races or recent settled overview
-    byId("chartSubtitle").textContent = "Apostas ao vivo travadas antes da largada (R$)";
-    byId("chartStatBets").textContent = String(paper.total_bets ?? 0);
-    byId("chartStatPnl").textContent = fmtBRL(paper.total_pnl ?? 0, true);
-    byId("chartStatPnl").className = (paper.total_pnl ?? 0) >= 0 ? "text-green" : "text-red";
-    byId("chartStatPf").textContent = paper.win_rate_pct ? `${paper.win_rate_pct}%` : "—";
-    byId("chartStatDd").textContent = fmtBRL(paper.committed_liability ?? 0);
+    byId("chartHeaderStat").textContent = `${fmtBRL(paper.total_pnl ?? 0, true)} · ${paper.total_bets ?? 0} entradas`;
     curve = (data.live_curve || []).map((c) => Number(c.bankroll_after));
   } else {
-    byId("chartSubtitle").textContent = "Estudo histórico out-of-sample (comissão 5%, spread + 1 tick, +EV)";
-    byId("chartStatBets").textContent = String(bt.total_bets ?? 0);
-    byId("chartStatPnl").textContent = fmtBRL(bt.total_pnl ?? 0, true);
-    byId("chartStatPnl").className = (bt.total_pnl ?? 0) >= 0 ? "text-green" : "text-red";
-    byId("chartStatPf").textContent = String(bt.profit_factor ?? 0);
-    byId("chartStatDd").textContent = `-${fmtBRL(bt.max_drawdown_brl ?? 0)} (${bt.max_drawdown_pct ?? 0}%)`;
+    byId("chartHeaderStat").textContent = `${fmtBRL(bt.total_pnl ?? 0, true)} · ROI ${bt.roi_pct ?? 0}% · DD -${fmtBRL(bt.max_drawdown_brl ?? 0)}`;
     curve = (data.bankroll_curve || []).map((c) => Number(c.bankroll_after));
   }
 
   if (!curve.length) {
-    box.appendChild(node("p", "empty-cell", "Aguardando liquidações para traçar o gráfico."));
+    box.appendChild(node("p", "empty-cell", "Aguardando liquidações."));
     return;
   }
 
   const values = [base, ...curve];
-  const minV = Math.min(...values) - 10;
-  const maxV = Math.max(...values) + 10;
+  const minV = Math.min(...values) - 8;
+  const maxV = Math.max(...values) + 8;
   const w = 640;
-  const h = 210;
-  const pad = 26;
+  const h = 225;
+  const pad = 22;
 
   const ns = "http://www.w3.org/2000/svg";
   const svg = document.createElementNS(ns, "svg");
   svg.setAttribute("viewBox", `0 0 ${w} ${h}`);
   svg.setAttribute("role", "img");
-  svg.setAttribute("aria-label", "Gráfico da evolução da banca em Reais");
+  svg.setAttribute("aria-label", "Evolução da banca em Reais");
 
   const defs = document.createElementNS(ns, "defs");
   const grad = document.createElementNS(ns, "linearGradient");
-  grad.setAttribute("id", "amberAreaGrad");
+  grad.setAttribute("id", "chartGrad");
   grad.setAttribute("x1", "0");
   grad.setAttribute("y1", "0");
   grad.setAttribute("x2", "0");
@@ -194,11 +180,11 @@ function renderBankrollChart(data) {
   const s1 = document.createElementNS(ns, "stop");
   s1.setAttribute("offset", "0%");
   s1.setAttribute("stop-color", "#f5a623");
-  s1.setAttribute("stop-opacity", "0.35");
+  s1.setAttribute("stop-opacity", "0.18");
   const s2 = document.createElementNS(ns, "stop");
   s2.setAttribute("offset", "100%");
   s2.setAttribute("stop-color", "#f5a623");
-  s2.setAttribute("stop-opacity", "0.0");
+  s2.setAttribute("stop-opacity", "0");
   grad.appendChild(s1);
   grad.appendChild(s2);
   defs.appendChild(grad);
@@ -210,8 +196,8 @@ function renderBankrollChart(data) {
   baseline.setAttribute("y1", baseY.toFixed(1));
   baseline.setAttribute("x2", String(w - pad));
   baseline.setAttribute("y2", baseY.toFixed(1));
-  baseline.setAttribute("stroke", "rgba(255,255,255,0.12)");
-  baseline.setAttribute("stroke-dasharray", "4 4");
+  baseline.setAttribute("stroke", "rgba(255,255,255,0.08)");
+  baseline.setAttribute("stroke-dasharray", "3 4");
   svg.appendChild(baseline);
 
   const coords = values.map((v, i) => {
@@ -224,32 +210,34 @@ function renderBankrollChart(data) {
   const areaPts = `${pad},${h - pad} ${linePts} ${coords[coords.length - 1][0].toFixed(1)},${h - pad}`;
 
   const area = document.createElementNS(ns, "polygon");
-  area.setAttribute("fill", "url(#amberAreaGrad)");
+  area.setAttribute("fill", "url(#chartGrad)");
   area.setAttribute("points", areaPts);
   svg.appendChild(area);
 
   const poly = document.createElementNS(ns, "polyline");
   poly.setAttribute("fill", "none");
-  poly.setAttribute("stroke", "#ffb732");
-  poly.setAttribute("stroke-width", "2.6");
+  poly.setAttribute("stroke", "#f5a623");
+  poly.setAttribute("stroke-width", "1.75");
   poly.setAttribute("points", linePts);
   svg.appendChild(poly);
 
   const lastVal = values[values.length - 1];
   const topTxt = document.createElementNS(ns, "text");
   topTxt.setAttribute("x", String(pad));
-  topTxt.setAttribute("y", "16");
-  topTxt.setAttribute("fill", "#949db0");
-  topTxt.setAttribute("font-size", "11");
-  topTxt.textContent = `Máx: ${fmtBRL(Math.max(...values))}  •  Atual: ${fmtBRL(lastVal)}`;
+  topTxt.setAttribute("y", "14");
+  topTxt.setAttribute("fill", "#8b93a3");
+  topTxt.setAttribute("font-size", "10.5");
+  topTxt.setAttribute("font-family", "JetBrains Mono, monospace");
+  topTxt.textContent = `${fmtBRL(lastVal)}  (máx ${fmtBRL(Math.max(...values))})`;
   svg.appendChild(topTxt);
 
   const botTxt = document.createElementNS(ns, "text");
   botTxt.setAttribute("x", String(pad));
-  botTxt.setAttribute("y", String(h - 6));
-  botTxt.setAttribute("fill", "#667085");
-  botTxt.setAttribute("font-size", "11");
-  botTxt.textContent = `Mín: ${fmtBRL(Math.min(...values))} (${curve.length} liquidações)`;
+  botTxt.setAttribute("y", String(h - 5));
+  botTxt.setAttribute("fill", "#59606e");
+  botTxt.setAttribute("font-size", "10.5");
+  botTxt.setAttribute("font-family", "JetBrains Mono, monospace");
+  botTxt.textContent = `mín ${fmtBRL(Math.min(...values))} · ${curve.length} entradas`;
   svg.appendChild(botTxt);
 
   box.appendChild(svg);
@@ -259,71 +247,72 @@ function renderQuickUpcoming(upcoming) {
   const box = byId("upcomingQuickList");
   box.replaceChildren();
   if (!upcoming || !upcoming.length) {
-    box.appendChild(node("p", "empty-cell", "Nenhuma corrida futura aberta no momento."));
+    box.appendChild(node("p", "empty-cell", "Sem corridas futuras abertas."));
     return;
   }
 
-  upcoming.slice(0, 5).forEach((b) => {
-    const item = node("div", "quick-item");
-    const left = node("div", "quick-left");
+  upcoming.slice(0, 6).forEach((b) => {
+    const row = node("div", "compact-row");
+    const left = node("div", "compact-left");
     const timePart = (b.race_dt || "").split(" ")[1] || "";
-    left.appendChild(node("span", "quick-time", timePart.slice(0, 5)));
+    left.appendChild(node("span", "compact-time mono", timePart.slice(0, 5)));
     left.appendChild(makeTrapBadge(b.trap_number));
 
-    const meta = node("div", "quick-meta");
-    meta.appendChild(node("span", "quick-title", `${b.dog_name} • ${b.track_name} P${b.race_number}`));
-    meta.appendChild(node("span", "quick-sub", `Odd ${Number(b.lay_odds).toFixed(2)} • Risco ${fmtBRL(b.liability)}`));
-    left.appendChild(meta);
+    const info = node("div", "compact-info");
+    info.appendChild(node("span", "compact-title", b.dog_name));
+    info.appendChild(node("span", "compact-sub", `${b.track_name} · P${b.race_number}`));
+    left.appendChild(info);
 
-    item.appendChild(left);
-    item.appendChild(node("span", "pill pill-amber", "Travada"));
-    box.appendChild(item);
-  });
-}
+    const right = node("div", "compact-right mono");
+    right.appendChild(node("div", "", `Odd ${Number(b.lay_odds).toFixed(2)}`));
+    right.appendChild(node("div", "sub-line", fmtBRL(b.liability)));
 
-function renderStrategySummary(rules, adaptive) {
-  const box = byId("strategySummaryBox");
-  box.replaceChildren();
-  const r = rules || {};
-  const al = adaptive || {};
-  [
-    ["Seleção no Páreo", "Miolo (sem 1º, 2º e último)"],
-    ["Comissão / Spread", `${r.commission_pct ?? 5}% • +${r.spread_pct ?? 5}% + ${r.slippage_ticks ?? 1} tick`],
-    ["Filtro +EV / Risco", `+${((al.active_min_ev ?? 0.01) * 100).toFixed(1)}% • Máx ${al.active_max_risk_pct ?? 15}%`],
-    ["Autoaprendizado", `${al.blocked_contexts_count ?? 0} pista(s) bloqueada(s)`],
-  ].forEach(([lbl, val]) => {
-    const cell = node("div", "strategy-box");
-    cell.appendChild(node("span", "", lbl));
-    cell.appendChild(node("strong", "", val));
-    box.appendChild(cell);
+    row.appendChild(left);
+    row.appendChild(right);
+    box.appendChild(row);
   });
 }
 
 function renderRecentSettled(races) {
-  const box = byId("recentSettledList");
-  box.replaceChildren();
+  const tbody = byId("recentSettledBody");
+  tbody.replaceChildren();
   const settled = (races || [])
     .filter((r) => r.paper_bet && (r.paper_bet.status === "WON_LAY" || r.paper_bet.status === "LOST_LAY"))
-    .slice(0, 5);
+    .slice(0, 8);
 
   if (!settled.length) {
-    box.appendChild(node("p", "empty-cell", "Aguardando liquidações recentes."));
+    const tr = document.createElement("tr");
+    const td = node("td", "empty-cell", "Aguardando liquidações.");
+    td.colSpan = 6;
+    tr.appendChild(td);
+    tbody.appendChild(tr);
     return;
   }
 
   settled.forEach((r) => {
     const pb = r.paper_bet;
     const isWin = pb.status === "WON_LAY";
-    const item = node("div", "quick-item");
-    const left = node("div", "quick-left");
-    left.appendChild(node("span", `pill ${isWin ? "pill-green" : "pill-red"}`, isWin ? "Acertou" : "Errou"));
-    const meta = node("div", "quick-meta");
-    meta.appendChild(node("span", "quick-title", `${r.lay_pick?.dog_name || "—"} • ${r.track_name} P${r.race_number}`));
-    meta.appendChild(node("span", "quick-sub", `${(r.race_time || "").slice(0, 5)} • ${pb.placed_before_race ? "Ao vivo pré-corrida" : "Backtest histórico"}`));
-    left.appendChild(meta);
-    item.appendChild(left);
-    item.appendChild(node("strong", `tabular ${isWin ? "text-green" : "text-red"}`, fmtBRL(pb.pnl, true)));
-    box.appendChild(item);
+    const tr = document.createElement("tr");
+    tr.appendChild(node("td", "mono", (r.race_time || "").slice(0, 5)));
+    tr.appendChild(node("td", "", `${r.track_name} · P${r.race_number}`));
+
+    const dogTd = document.createElement("td");
+    const cell = node("div", "runner-cell");
+    if (r.lay_pick) {
+      cell.appendChild(makeTrapBadge(r.lay_pick.trap_number));
+      cell.appendChild(node("span", "", r.lay_pick.dog_name));
+    }
+    dogTd.appendChild(cell);
+    tr.appendChild(dogTd);
+
+    tr.appendChild(node("td", "num", pb.lay_odds ? Number(pb.lay_odds).toFixed(2) : "—"));
+
+    const stTd = document.createElement("td");
+    stTd.appendChild(node("span", `tag ${isWin ? "tag-green" : "tag-red"}`, isWin ? "Acertou" : "Errou"));
+    tr.appendChild(stTd);
+
+    tr.appendChild(node("td", `num ${isWin ? "pos" : "neg"}`, fmtBRL(pb.pnl, true)));
+    tbody.appendChild(tr);
   });
 }
 
@@ -338,28 +327,24 @@ function renderUpcomingTable(upcoming) {
   }
 
   card.hidden = false;
-  byId("upcomingCountBadge").textContent = `${upcoming.length} aberta${upcoming.length > 1 ? "s" : ""}`;
+  byId("upcomingCountBadge").textContent = String(upcoming.length);
 
   upcoming.forEach((b) => {
     const tr = document.createElement("tr");
     const timePart = (b.race_dt || "").split(" ")[1] || "";
-    tr.appendChild(node("td", "tabular", `${timePart.slice(0, 5)} • ${b.track_name} (P${b.race_number})`));
+    tr.appendChild(node("td", "mono", timePart.slice(0, 5)));
+    tr.appendChild(node("td", "", `${b.track_name} · P${b.race_number}`));
 
     const dogTd = document.createElement("td");
     const cell = node("div", "runner-cell");
     cell.appendChild(makeTrapBadge(b.trap_number));
-    cell.appendChild(node("strong", "", b.dog_name));
+    cell.appendChild(node("span", "", b.dog_name));
     dogTd.appendChild(cell);
     tr.appendChild(dogTd);
 
     tr.appendChild(node("td", "num", `${(Number(b.lose_prob || 0) * 100).toFixed(1)}%`));
     tr.appendChild(node("td", "num", Number(b.lay_odds).toFixed(2)));
     tr.appendChild(node("td", "num", `${fmtBRL(b.stake)} / ${fmtBRL(b.liability)}`));
-
-    const stTd = document.createElement("td");
-    stTd.appendChild(node("span", "pill pill-amber", "Travada • Aguardando"));
-    tr.appendChild(stTd);
-
     tbody.appendChild(tr);
   });
 }
@@ -372,41 +357,32 @@ function renderAdaptiveLearning(al) {
   tbody.replaceChildren();
 
   if (!al || !al.contexts) {
-    badge.className = "pill pill-neutral";
-    badge.textContent = "Aguardando";
+    badge.className = "tag mono";
+    badge.textContent = "—";
     return;
   }
 
   const defensive = Boolean(al.defensive_mode);
-  badge.className = `pill ${defensive ? "pill-amber" : "pill-green"}`;
-  badge.textContent = defensive ? "Modo Defensivo (Drawdown)" : "Modo Normal";
+  badge.className = `tag mono ${defensive ? "tag-amber" : "tag-green"}`;
+  badge.textContent = defensive ? "Defensivo" : "Normal";
 
   [
-    `Perfis bloqueados: ${al.blocked_contexts_count ?? 0}`,
-    `Entradas evitadas: ${al.races_protected_count ?? 0}`,
-    `+EV mínimo: ${((al.active_min_ev ?? 0.01) * 100).toFixed(1)}%`,
-    `Teto de risco: ${al.active_max_risk_pct ?? 15}%`,
+    `Bloqueios: ${al.blocked_contexts_count ?? 0}`,
+    `Evitadas: ${al.races_protected_count ?? 0}`,
+    `+EV mín: ${((al.active_min_ev ?? 0.01) * 100).toFixed(1)}%`,
+    `Risco máx: ${al.active_max_risk_pct ?? 15}%`,
   ].forEach((txt) => bar.appendChild(node("span", "", txt)));
 
-  if (!al.contexts.length) {
-    const tr = document.createElement("tr");
-    const td = node("td", "empty-cell", "Nenhum contexto atingiu amostra mínima ainda.");
-    td.colSpan = 6;
-    tr.appendChild(td);
-    tbody.appendChild(tr);
-    return;
-  }
-
-  al.contexts.forEach((c) => {
+  (al.contexts || []).forEach((c) => {
     const tr = document.createElement("tr");
     tr.appendChild(node("td", "", c.context));
     tr.appendChild(node("td", "num", c.bets));
     tr.appendChild(node("td", "num", `${c.win_pct}%`));
-    tr.appendChild(node("td", `num ${c.roi_pct >= 0 ? "text-green" : "text-red"}`, `${c.roi_pct}%`));
-    tr.appendChild(node("td", "num", `${c.pred_win_pct}% vs ${c.actual_win_pct}%`));
+    tr.appendChild(node("td", `num ${c.roi_pct >= 0 ? "pos" : "neg"}`, `${c.roi_pct}%`));
+    tr.appendChild(node("td", "num", `${c.pred_win_pct}% / ${c.actual_win_pct}%`));
     const stTd = document.createElement("td");
     const isBlocked = c.status === "BLOQUEADO";
-    stTd.appendChild(node("span", `pill ${isBlocked ? "pill-red" : "pill-green"}`, c.status));
+    stTd.appendChild(node("span", `tag ${isBlocked ? "tag-red" : "tag-green"}`, c.status));
     tr.appendChild(stTd);
     tbody.appendChild(tr);
   });
@@ -418,22 +394,22 @@ function renderRiskAndCalibration(rules, bt, buckets) {
   const r = rules || {};
   const b = bt || {};
   [
-    `Comissão: ${r.commission_pct ?? 5}%`,
-    `Spread + Slippage: +${r.spread_pct ?? 5}% + ${r.slippage_ticks ?? 1} tick`,
-    `Drawdown Máx: -${fmtBRL(b.max_drawdown_brl ?? 0)} (${b.max_drawdown_pct ?? 0}%)`,
-    `Profit Factor: ${b.profit_factor ?? 0}`,
-    `Expectativa/Aposta: ${fmtBRL(b.expectancy_brl ?? 0, true)}`,
+    `Comissão ${r.commission_pct ?? 5}%`,
+    `Spread +${r.spread_pct ?? 5}% + ${r.slippage_ticks ?? 1} tick`,
+    `Drawdown -${fmtBRL(b.max_drawdown_brl ?? 0)} (${b.max_drawdown_pct ?? 0}%)`,
+    `Profit Factor ${b.profit_factor ?? 0}`,
+    `Expectativa ${fmtBRL(b.expectancy_brl ?? 0, true)}`,
   ].forEach((txt) => bar.appendChild(node("span", "", txt)));
 
   const calBody = byId("calibrationBody");
   calBody.replaceChildren();
   (buckets || []).forEach((bk) => {
     const tr = document.createElement("tr");
-    tr.appendChild(node("td", "", bk.band));
+    tr.appendChild(node("td", "mono", bk.band));
     tr.appendChild(node("td", "num", bk.count));
     tr.appendChild(node("td", "num", `${bk.pred_win_pct}%`));
     tr.appendChild(node("td", "num", `${bk.actual_win_pct}%`));
-    tr.appendChild(node("td", "num text-green", `${bk.actual_lose_pct}%`));
+    tr.appendChild(node("td", "num pos", `${bk.actual_lose_pct}%`));
     calBody.appendChild(tr);
   });
 }
@@ -441,12 +417,8 @@ function renderRiskAndCalibration(rules, bt, buckets) {
 function renderFeatures(features) {
   const list = byId("featureList");
   list.replaceChildren();
-  if (!features || !features.length) {
-    list.appendChild(node("p", "empty-cell", "Aguardando treinamento."));
-    return;
-  }
-  const maxW = Math.max(...features.map((f) => Number(f.weight || 0)), 1);
-  features.forEach((f) => {
+  const maxW = Math.max(...(features || []).map((f) => Number(f.weight || 0)), 1);
+  (features || []).forEach((f) => {
     const row = node("div", "feat-row");
     row.appendChild(node("span", "", f.label || f.feature));
     const meter = document.createElement("meter");
@@ -455,7 +427,7 @@ function renderFeatures(features) {
     meter.max = maxW;
     meter.value = Number(f.weight || 0);
     row.appendChild(meter);
-    row.appendChild(node("strong", "tabular", `${Number(f.weight || 0).toFixed(1)}%`));
+    row.appendChild(node("span", "mono", `${Number(f.weight || 0).toFixed(1)}%`));
     list.appendChild(row);
   });
 }
@@ -488,39 +460,36 @@ function renderOverview(data) {
   byId("kpiBankroll").textContent = fmtBRL(currentBankroll);
 
   const badge = byId("kpiProfitBadge");
-  badge.className = `pill ${isProfit ? "pill-green" : "pill-red"}`;
-  badge.textContent = isProfit ? `LUCRO ${fmtBRL(netPnl, true)}` : `PREJUÍZO ${fmtBRL(netPnl)}`;
-  byId("kpiBankrollSub").textContent = `Livre: ${fmtBRL(availBalance)} • Risco: ${fmtBRL(committedRisk)} • Stake: ${fmtBRL(layStake)}`;
+  badge.className = `tag mono ${isProfit ? "tag-green" : "tag-red"}`;
+  badge.textContent = fmtBRL(netPnl, true);
+  byId("kpiBankrollSub").textContent = `Livre ${fmtBRL(availBalance)} · Risco ${fmtBRL(committedRisk)}`;
 
   byId("kpiTotalWon").textContent = fmtBRL(paper.total_won_amount ?? 0);
   byId("kpiTotalLost").textContent = fmtBRL(paper.total_lost_amount ?? 0);
   byId("kpiRoiBadge").textContent = `ROI ${paper.roi_pct ?? 0}%`;
-  byId("kpiWinLossSub").textContent = `${paper.won_bets ?? 0} acertos / ${paper.lost_bets ?? 0} erros (${paper.total_bets ?? 0} ao vivo)`;
+  byId("kpiWinLossSub").textContent = `${paper.won_bets ?? 0}W · ${paper.lost_bets ?? 0}L · Stake ${fmtBRL(layStake)}`;
 
   const hasLive = (paper.total_bets ?? 0) > 0;
   byId("kpiLayAcc").textContent = hasLive
     ? `${paper.win_rate_pct}%`
     : `${bt.win_rate_pct ?? (model?.lay_accuracy ?? 0)}%`;
-  byId("kpiLaySub").textContent = hasLive
-    ? `Ao vivo (${paper.total_bets} corr.) • Estudo: ${bt.win_rate_pct ?? 0}%`
-    : `Backtest (${bt.total_bets ?? 0} corr.) • Sem 1º nem último`;
+  byId("kpiLaySub").textContent = `Backtest 30d: ${bt.win_rate_pct ?? 0}% · ROI ${bt.roi_pct ?? 0}%`;
 
   const pendingCount = paper.pending_bets ?? 0;
-  byId("kpiPendingBadge").textContent = `${pendingCount} aberta${pendingCount === 1 ? "" : "s"}`;
+  byId("kpiPendingBadge").textContent = `${pendingCount} abertas`;
   const navPill = byId("navUpcomingPill");
   navPill.textContent = String(pendingCount);
   navPill.hidden = pendingCount === 0;
 
-  byId("kpiRaces").textContent = `${totals.total_races ?? 0} corridas`;
+  byId("kpiRaces").textContent = `${totals.total_races ?? 0} corr.`;
   byId("kpiModelSub").textContent = model
-    ? `${model.model_name} • Log-Loss ${Number(model.log_loss).toFixed(4)} • ${totals.total_dogs ?? 0} galgos`
+    ? `${model.model_name} · LL ${Number(model.log_loss).toFixed(4)}`
     : "Aguardando treino";
   const adapPill = byId("kpiAdaptivePill");
-  adapPill.className = `pill ${al.defensive_mode ? "pill-amber" : "pill-green"}`;
+  adapPill.className = `tag mono ${al.defensive_mode ? "tag-amber" : "tag-green"}`;
   adapPill.textContent = al.defensive_mode ? "Defensivo" : "Normal";
 
   renderQuickUpcoming(data.upcoming_bets);
-  renderStrategySummary(data.simulation_rules, al);
   renderUpcomingTable(data.upcoming_bets);
   renderBankrollChart(data);
   renderFeatures(data.feature_importances);
@@ -528,10 +497,9 @@ function renderOverview(data) {
   renderAdaptiveLearning(al);
 
   if (data.simulation_rules?.betfair_hist_dir) {
-    byId("bfHistDesc").textContent = `Coloque arquivos gratuitos (.tar.bz2 / .bz2) em "${data.simulation_rules.betfair_hist_dir}" (${data.simulation_rules.exchange_entries_count} entradas vinculadas).`;
+    byId("bfHistDesc").textContent = `${data.simulation_rules.betfair_hist_dir} (${data.simulation_rules.exchange_entries_count} entradas)`;
   }
 
-  // Dates selector
   const dateSel = byId("dateSelect");
   const prev = state.selectedDate || data.active_date;
   dateSel.replaceChildren();
@@ -548,19 +516,16 @@ function renderOverview(data) {
     state.selectedDate = dateSel.options[0].value;
     dateSel.value = state.selectedDate;
   }
-  if (state.selectedDate) {
-    byId("customDateInput").value = state.selectedDate;
-  }
+  if (state.selectedDate) byId("customDateInput").value = state.selectedDate;
 
-  // Model history
   const mhBody = byId("modelHistoryBody");
   mhBody.replaceChildren();
   (data.model_history || []).slice().reverse().forEach((m) => {
     const tr = document.createElement("tr");
     [
-      [`#${m.id}`, ""],
+      [`#${m.id}`, "mono"],
       [m.model_name, ""],
-      [`${m.val_races} corr.`, "num"],
+      [m.val_races, "num"],
       [Number(m.log_loss).toFixed(4), "num"],
       [Number(m.brier_score).toFixed(4), "num"],
       [`${m.lay_accuracy}%`, "num"],
@@ -569,21 +534,20 @@ function renderOverview(data) {
     mhBody.appendChild(tr);
   });
 
-  // Error audit
   const errBody = byId("errorAuditBody");
   errBody.replaceChildren();
   const errs = data.error_audit || [];
   if (!errs.length) {
     const tr = document.createElement("tr");
-    const td = node("td", "empty-cell", "Nenhum erro registrado ainda.");
+    const td = node("td", "empty-cell", "Nenhum erro registrado.");
     td.colSpan = 7;
     tr.appendChild(td);
     errBody.appendChild(tr);
   } else {
     errs.forEach((e) => {
       const tr = document.createElement("tr");
-      tr.appendChild(node("td", "tabular", e.iso_date));
-      tr.appendChild(node("td", "", `${e.track_name} • P${e.race_number}`));
+      tr.appendChild(node("td", "mono", e.iso_date));
+      tr.appendChild(node("td", "", `${e.track_name} · P${e.race_number}`));
       const dogTd = document.createElement("td");
       const wrap = node("div", "runner-cell");
       wrap.appendChild(makeTrapBadge(e.trap_number));
@@ -592,15 +556,13 @@ function renderOverview(data) {
       tr.appendChild(dogTd);
       tr.appendChild(node("td", "num", `${(Number(e.win_prob) * 100).toFixed(1)}%`));
       tr.appendChild(node("td", "num", Number(e.lay_odds).toFixed(2)));
-      tr.appendChild(node("td", "num text-red", `-${fmtBRL(e.liability)}`));
+      tr.appendChild(node("td", "num neg", `-${fmtBRL(e.liability)}`));
       tr.appendChild(node("td", "", e.error_reason || "—"));
       errBody.appendChild(tr);
     });
   }
 
-  if (!byId("liveLogsList").children.length && data.logs) {
-    renderLogs(data.logs);
-  }
+  if (!byId("liveLogsList").children.length && data.logs) renderLogs(data.logs);
 }
 
 function buildDetailRow(race) {
@@ -611,23 +573,21 @@ function buildDetailRow(race) {
   const box = node("div", "detail-box");
   const lp = race.lay_pick;
   if (lp && lp.reasons && lp.reasons.length) {
-    box.appendChild(
-      node("div", "detail-reason", `Motivo Lay (${lp.dog_name}): ${lp.reasons.join(" • ")}`)
-    );
+    box.appendChild(node("div", "detail-reason", `${lp.dog_name}: ${lp.reasons.join(" · ")}`));
   }
 
   const wrap = node("div", "table-wrap");
-  const tbl = node("table", "data-table");
+  const tbl = node("table", "tbl");
   const thead = document.createElement("thead");
   const hrow = document.createElement("tr");
   [
     ["Rank", ""],
-    ["Trap / Galgo", ""],
-    ["Prob. Ganhar", "num"],
-    ["Prob. Perder", "num"],
+    ["Galgo", ""],
+    ["Vitória", "num"],
+    ["Derrota", "num"],
     ["Forma", ""],
-    ["Odd SP", "num"],
-    ["Chegada Real", ""],
+    ["SP", "num"],
+    ["Chegada", ""],
   ].forEach(([h, cls]) => {
     const th = node("th", cls, h);
     th.scope = "col";
@@ -639,24 +599,22 @@ function buildDetailRow(race) {
   const tbody = document.createElement("tbody");
   (race.runners || []).forEach((d) => {
     const rtr = document.createElement("tr");
-    rtr.appendChild(node("td", "tabular", `${d.predicted_rank ?? "—"}º`));
+    rtr.appendChild(node("td", "mono", `${d.predicted_rank ?? "—"}º`));
 
     const gtd = document.createElement("td");
     const cell = node("div", "runner-cell");
     cell.appendChild(makeTrapBadge(d.trap_number));
     cell.appendChild(node("span", "", d.dog_name));
-    if (d.is_lay_pick === 1) {
-      cell.appendChild(node("span", "pill pill-amber", "LAY"));
-    }
+    if (d.is_lay_pick === 1) cell.appendChild(node("span", "tag tag-amber mono", "LAY"));
     gtd.appendChild(cell);
     rtr.appendChild(gtd);
 
     rtr.appendChild(node("td", "num", d.win_prob != null ? `${(d.win_prob * 100).toFixed(1)}%` : "—"));
     rtr.appendChild(node("td", "num", d.lose_prob != null ? `${(d.lose_prob * 100).toFixed(1)}%` : "—"));
-    rtr.appendChild(node("td", "tabular", d.stats?.recent_form || "—"));
+    rtr.appendChild(node("td", "mono", d.stats?.recent_form || "—"));
     rtr.appendChild(node("td", "num", d.decimal_odds ? Number(d.decimal_odds).toFixed(2) : "—"));
-    const posText = d.result_position ? (d.result_position === 1 ? "1º (Vencedor)" : `${d.result_position}º`) : "Aguardando";
-    rtr.appendChild(node("td", d.result_position === 1 ? "text-green" : "", posText));
+    const posText = d.result_position ? (d.result_position === 1 ? "1º" : `${d.result_position}º`) : "—";
+    rtr.appendChild(node("td", `mono ${d.result_position === 1 ? "pos" : ""}`, posText));
     tbody.appendChild(rtr);
   });
   tbl.appendChild(tbody);
@@ -683,7 +641,7 @@ function renderRaces() {
 
   if (!filtered.length) {
     const tr = document.createElement("tr");
-    const td = node("td", "empty-cell", "Nenhuma corrida encontrada para os filtros selecionados.");
+    const td = node("td", "empty-cell", "Sem corridas para os filtros atuais.");
     td.colSpan = 6;
     tr.appendChild(td);
     tbody.appendChild(tr);
@@ -695,9 +653,9 @@ function renderRaces() {
     const tr = document.createElement("tr");
 
     const tdRace = document.createElement("td");
-    tdRace.appendChild(node("strong", "tabular", `${(r.race_time || "").slice(0, 5)} • ${r.track_name}`));
-    const fut = r.is_completed ? "" : " • FUTURA";
-    tdRace.appendChild(node("div", "meta-line", `Páreo ${r.race_number} • ${r.race_class || "—"} • ${r.race_distance ? Math.round(r.race_distance) + "m" : "—"}${fut}`));
+    tdRace.appendChild(node("span", "mono", `${(r.race_time || "").slice(0, 5)} `));
+    tdRace.appendChild(node("strong", "", r.track_name));
+    tdRace.appendChild(node("div", "sub-line mono", `P${r.race_number} · ${r.race_class || "—"} · ${r.race_distance ? Math.round(r.race_distance) + "m" : "—"}`));
     tr.appendChild(tdRace);
 
     const tdLay = document.createElement("td");
@@ -705,14 +663,12 @@ function renderRaces() {
     if (lp) {
       const cell = node("div", "runner-cell");
       cell.appendChild(makeTrapBadge(lp.trap_number));
-      cell.appendChild(node("strong", "", lp.dog_name));
+      cell.appendChild(node("span", "", lp.dog_name));
       tdLay.appendChild(cell);
       const pb = r.paper_bet;
       const oddShow = lp.decimal_odds || pb?.lay_odds;
-      const oddTxt = oddShow ? ` • Odd ${Number(oddShow).toFixed(2)}` : "";
-      tdLay.appendChild(node("div", "meta-line tabular", `${lp.predicted_rank ?? "—"}º de ${r.active_runners || (r.runners || []).length} • ${((lp.lose_prob || 0) * 100).toFixed(1)}% perde${oddTxt}`));
-    } else {
-      tdLay.textContent = "—";
+      const oddTxt = oddShow ? ` · Odd ${Number(oddShow).toFixed(2)}` : "";
+      tdLay.appendChild(node("div", "sub-line mono", `${lp.predicted_rank ?? "—"}º/${r.active_runners || (r.runners || []).length} · ${((lp.lose_prob || 0) * 100).toFixed(0)}%${oddTxt}`));
     }
     tr.appendChild(tdLay);
 
@@ -723,50 +679,44 @@ function renderRaces() {
       cell.appendChild(makeTrapBadge(pw.trap_number));
       cell.appendChild(node("span", "", pw.dog_name));
       tdWin.appendChild(cell);
-      tdWin.appendChild(node("div", "meta-line tabular", `Chance: ${((pw.win_prob || 0) * 100).toFixed(1)}% • Fair ${pw.fair_odds ?? "—"}`));
-    } else {
-      tdWin.textContent = "—";
+      tdWin.appendChild(node("div", "sub-line mono", `${((pw.win_prob || 0) * 100).toFixed(1)}% · Fair ${pw.fair_odds ?? "—"}`));
     }
     tr.appendChild(tdWin);
 
     const tdSt = document.createElement("td");
     if (r.lay_outcome === "ACERTOU_LAY") {
-      tdSt.appendChild(node("span", "pill pill-green", "Acertou"));
+      tdSt.appendChild(node("span", "tag tag-green", "Acertou"));
     } else if (r.lay_outcome === "ERROU_LAY") {
-      tdSt.appendChild(node("span", "pill pill-red", "Errou"));
+      tdSt.appendChild(node("span", "tag tag-red", "Errou"));
     } else {
-      tdSt.appendChild(node("span", "pill pill-amber", "Aberta"));
+      tdSt.appendChild(node("span", "tag tag-amber", "Aberta"));
     }
-    tdSt.appendChild(
-      node(
-        "div",
-        "meta-line",
-        r.actual_winner ? `Vencedor: T${r.actual_winner.trap_number} ${r.actual_winner.dog_name}` : "Aguardando resultado"
-      )
-    );
+    if (r.actual_winner) {
+      tdSt.appendChild(node("div", "sub-line", `1º T${r.actual_winner.trap_number} ${r.actual_winner.dog_name}`));
+    }
     tr.appendChild(tdSt);
 
     const tdPnl = document.createElement("td");
     tdPnl.className = "num";
     const pb = r.paper_bet;
     if (pb && pb.status === "WON_LAY") {
-      tdPnl.appendChild(node("strong", "text-green", fmtBRL(pb.pnl, true)));
-      tdPnl.appendChild(node("div", "meta-line", pb.placed_before_race ? "Ao vivo" : "Backtest"));
+      tdPnl.appendChild(node("strong", "pos", fmtBRL(pb.pnl, true)));
+      tdPnl.appendChild(node("div", "sub-line", pb.placed_before_race ? "Ao vivo" : "Backtest"));
     } else if (pb && pb.status === "LOST_LAY") {
-      tdPnl.appendChild(node("strong", "text-red", fmtBRL(pb.pnl)));
-      tdPnl.appendChild(node("div", "meta-line", pb.placed_before_race ? "Ao vivo" : "Backtest"));
+      tdPnl.appendChild(node("strong", "neg", fmtBRL(pb.pnl)));
+      tdPnl.appendChild(node("div", "sub-line", pb.placed_before_race ? "Ao vivo" : "Backtest"));
     } else if (pb && pb.status === "PENDING") {
-      tdPnl.appendChild(node("strong", "text-amber", `Stake ${fmtBRL(pb.stake)}`));
-      tdPnl.appendChild(node("div", "meta-line", `Risco ${fmtBRL(pb.liability)}`));
+      tdPnl.appendChild(node("span", "", fmtBRL(pb.stake)));
+      tdPnl.appendChild(node("div", "sub-line", `Risco ${fmtBRL(pb.liability)}`));
     } else {
-      tdPnl.appendChild(node("span", "meta-line", r.is_completed ? "Filtrada" : "Sem saldo"));
+      tdPnl.appendChild(node("span", "sub-line", "—"));
     }
     tr.appendChild(tdPnl);
 
     const tdBtn = document.createElement("td");
     tdBtn.className = "num";
     const isExp = state.expandedRaces.has(r.race_id);
-    const btn = node("button", "btn btn-ghost", isExp ? "Ocultar ▴" : "Traps ▾");
+    const btn = node("button", "text-btn", isExp ? "Fechar" : "Traps");
     btn.type = "button";
     btn.setAttribute("aria-expanded", String(isExp));
     btn.addEventListener("click", () => {
@@ -821,13 +771,11 @@ async function loadRaces() {
   const bar = byId("daySummaryBar");
   bar.replaceChildren();
   [
-    `Data: ${data.date || "—"}`,
-    `Corridas: ${ds.total_races ?? 0}`,
-    `Acertos Lay: ${ds.lay_hits ?? 0}/${ds.lay_total ?? 0} (${ds.lay_pct ?? 0}%)`,
-    `Ganhou: ${fmtBRL(ds.day_won_amount ?? 0, true)}`,
-    `Perdeu: -${fmtBRL(ds.day_lost_amount ?? 0)}`,
-    `Saldo do dia: ${fmtBRL(ds.day_net_pnl ?? 0, true)}`,
-  ].forEach((txt) => bar.appendChild(node("span", "tabular", txt)));
+    `${data.date || "—"}`,
+    `${ds.total_races ?? 0} corridas`,
+    `Lay ${ds.lay_hits ?? 0}/${ds.lay_total ?? 0} (${ds.lay_pct ?? 0}%)`,
+    `Saldo dia ${fmtBRL(ds.day_net_pnl ?? 0, true)}`,
+  ].forEach((txt) => bar.appendChild(node("span", "", txt)));
 
   renderRaces();
 }
@@ -843,7 +791,7 @@ function connectWebSocket() {
   state.ws = ws;
 
   ws.onopen = () => {
-    byId("wsBadge").className = "live-chip is-online";
+    byId("wsBadge").className = "ws-status is-online";
     byId("wsLabel").textContent = "Ao vivo";
   };
 
@@ -863,8 +811,8 @@ function connectWebSocket() {
   };
 
   ws.onclose = () => {
-    byId("wsBadge").className = "live-chip is-offline";
-    byId("wsLabel").textContent = "Reconectando...";
+    byId("wsBadge").className = "ws-status is-offline";
+    byId("wsLabel").textContent = "Reconectando";
     setTimeout(connectWebSocket, 3000);
   };
 }
@@ -887,15 +835,15 @@ function buildSimulatorGrid() {
     nameInp.className = "sim-dog-name";
     nameInp.dataset.trap = String(trap);
     nameInp.setAttribute("list", "dogsDatalist");
-    nameInp.setAttribute("aria-label", `Nome do galgo na Trap ${trap}`);
-    nameInp.placeholder = "Nome do galgo...";
+    nameInp.setAttribute("aria-label", `Galgo Trap ${trap}`);
+    nameInp.placeholder = "Nome do galgo";
 
     const oddsInp = document.createElement("input");
     oddsInp.type = "number";
     oddsInp.step = "0.05";
     oddsInp.min = "1.05";
     oddsInp.className = "sim-dog-odds";
-    oddsInp.setAttribute("aria-label", `Odd de Lay na Trap ${trap}`);
+    oddsInp.setAttribute("aria-label", `Odd Trap ${trap}`);
     oddsInp.placeholder = "Odd";
 
     nameInp.addEventListener("input", () => {
@@ -911,7 +859,7 @@ function buildSimulatorGrid() {
         items.forEach((d) => {
           const opt = document.createElement("option");
           opt.value = d.dog_name;
-          opt.textContent = `${d.dog_name} (${d.runs} corridas)`;
+          opt.textContent = `${d.dog_name} (${d.runs})`;
           dl.appendChild(opt);
         });
       }, 250);
@@ -924,7 +872,6 @@ function buildSimulatorGrid() {
   }
 }
 
-// Chart toggle
 byId("btnChartBacktest").addEventListener("click", () => {
   state.chartMode = "backtest";
   byId("btnChartBacktest").classList.add("is-active");
@@ -943,9 +890,7 @@ byId("bankrollForm").addEventListener("submit", async (e) => {
   e.preventDefault();
   const bankrollStart = parseFloat(byId("cfgBankrollStart").value);
   const layStake = parseFloat(byId("cfgLayStake").value);
-  if (!Number.isFinite(bankrollStart) || bankrollStart < 10 || !Number.isFinite(layStake) || layStake < 1) {
-    return;
-  }
+  if (!Number.isFinite(bankrollStart) || bankrollStart < 10 || !Number.isFinite(layStake) || layStake < 1) return;
   const btn = byId("btnSaveBankroll");
   btn.disabled = true;
   try {
@@ -981,7 +926,7 @@ byId("btnRunSim").addEventListener("click", async () => {
   const resultBox = byId("simResultBox");
   resultBox.replaceChildren();
   if (runners.length < 3) {
-    resultBox.appendChild(node("p", "empty-cell", "Informe pelo menos 3 galgos para evitar seleção de 1º/último."));
+    resultBox.appendChild(node("p", "empty-cell", "Informe pelo menos 3 galgos."));
     return;
   }
 
@@ -999,20 +944,20 @@ byId("btnRunSim").addEventListener("click", async () => {
 
   const grid = node("div", "sim-cards");
   const layBox = node("div", "sim-out-card");
-  layBox.appendChild(node("div", "kpi-label", "Galgo para Apostar (Perderá / Lay)"));
+  layBox.appendChild(node("span", "kpi-name", "Lay (Perderá)"));
   const layCell = node("div", "runner-cell");
   layCell.appendChild(makeTrapBadge(data.lay_pick.trap_number));
-  layCell.appendChild(node("strong", "", `${data.lay_pick.dog_name} (${data.lay_pick.predicted_rank}º de ${data.runners.length})`));
+  layCell.appendChild(node("strong", "", `${data.lay_pick.dog_name} (${data.lay_pick.predicted_rank}º/${data.runners.length})`));
   layBox.appendChild(layCell);
-  layBox.appendChild(node("p", "kpi-sub", `Chance de perder: ${data.lay_pick.lose_prob_pct}% • ${data.lay_pick.reasons.join(" • ")}`));
+  layBox.appendChild(node("span", "sub-line mono", `${data.lay_pick.lose_prob_pct}% derrota · ${data.lay_pick.reasons.join(" · ")}`));
 
   const winBox = node("div", "sim-out-card");
-  winBox.appendChild(node("div", "kpi-label", `Vencedor Provável (${data.model_name})`));
+  winBox.appendChild(node("span", "kpi-name", `Favorito (${data.model_name})`));
   const winCell = node("div", "runner-cell");
   winCell.appendChild(makeTrapBadge(data.probable_winner.trap_number));
   winCell.appendChild(node("strong", "", data.probable_winner.dog_name));
   winBox.appendChild(winCell);
-  winBox.appendChild(node("p", "kpi-sub", `Prob. vitória: ${data.probable_winner.win_prob_pct}% • Fair Odd: ${data.probable_winner.fair_odds}`));
+  winBox.appendChild(node("span", "sub-line mono", `${data.probable_winner.win_prob_pct}% vitória · Fair ${data.probable_winner.fair_odds}`));
 
   grid.appendChild(layBox);
   grid.appendChild(winBox);
@@ -1042,11 +987,11 @@ byId("btnImportBf").addEventListener("click", async () => {
   const btn = byId("btnImportBf");
   const st = byId("bfImportStatus");
   btn.disabled = true;
-  st.textContent = "Escaneando arquivos...";
+  st.textContent = "Importando...";
   try {
     const resp = await fetch("/api/import/betfair-historical", { method: "POST" });
     const data = await resp.json();
-    st.textContent = `${data.files_scanned} arquivo(s) • ${data.prices_parsed} preços • ${data.entries_updated} atualizadas.`;
+    st.textContent = `${data.files_scanned} arq · ${data.prices_parsed} preços · ${data.entries_updated} atualizadas`;
     await refreshAll();
   } finally {
     btn.disabled = false;
