@@ -6,6 +6,7 @@ const state = {
   outcomeFilter: "ALL",
   searchQuery: "",
   chartMode: "backtest",
+  botChartMode: "daily",
   overview: null,
   races: [],
   expandedRaces: new Set(),
@@ -41,15 +42,23 @@ function fmtTime(isoStr) {
   return d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 }
 
+function fmtShortDateTime(isoStr) {
+  if (!isoStr) return "—";
+  const d = new Date(isoStr);
+  if (Number.isNaN(d.getTime())) return isoStr;
+  return d.toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+}
+
 function makeTrapBadge(trapNum) {
   const n = Number(trapNum) || 1;
   const cls = n >= 1 && n <= 6 ? `trap-${n}` : "trap-4";
   return node("span", `trap-badge ${cls}`, n);
 }
 
-// Sidebar tabs
+// Sidebar navigation
 const tabButtons = Array.from(document.querySelectorAll('[role="tab"]'));
 function activateTab(targetBtn) {
+  if (!targetBtn) return;
   tabButtons.forEach((btn) => {
     const isActive = btn === targetBtn;
     btn.classList.toggle("is-active", isActive);
@@ -93,7 +102,7 @@ byId("btnMobileMenu").addEventListener("click", () => {
 });
 
 byId("btnJumpRaces").addEventListener("click", () => activateTab(byId("tabBtn-races")));
-byId("btnJumpPerf").addEventListener("click", () => activateTab(byId("tabBtn-performance")));
+byId("btnJumpBot").addEventListener("click", () => activateTab(byId("tabBtn-bot")));
 
 const modal = byId("bankrollModal");
 byId("btnOpenBankrollModal").addEventListener("click", () => modal.showModal());
@@ -134,6 +143,12 @@ function renderLogs(logs) {
   (logs || []).forEach((log) => list.appendChild(createLogElement(log)));
 }
 
+function svgEl(tag, attrs = {}) {
+  const el = document.createElementNS("http://www.w3.org/2000/svg", tag);
+  Object.entries(attrs).forEach(([k, v]) => el.setAttribute(k, String(v)));
+  return el;
+}
+
 function renderBankrollChart(data) {
   const box = byId("bankrollChart");
   box.replaceChildren();
@@ -161,44 +176,33 @@ function renderBankrollChart(data) {
   const minV = Math.min(...values) - 8;
   const maxV = Math.max(...values) + 8;
   const w = 640;
-  const h = 225;
-  const pad = 22;
+  const h = 230;
+  const pad = 24;
 
-  const ns = "http://www.w3.org/2000/svg";
-  const svg = document.createElementNS(ns, "svg");
-  svg.setAttribute("viewBox", `0 0 ${w} ${h}`);
-  svg.setAttribute("role", "img");
-  svg.setAttribute("aria-label", "Evolução da banca em Reais");
+  const svg = svgEl("svg", {
+    viewBox: `0 0 ${w} ${h}`,
+    role: "img",
+    "aria-label": "Evolução da banca em Reais",
+  });
 
-  const defs = document.createElementNS(ns, "defs");
-  const grad = document.createElementNS(ns, "linearGradient");
-  grad.setAttribute("id", "chartGrad");
-  grad.setAttribute("x1", "0");
-  grad.setAttribute("y1", "0");
-  grad.setAttribute("x2", "0");
-  grad.setAttribute("y2", "1");
-  const s1 = document.createElementNS(ns, "stop");
-  s1.setAttribute("offset", "0%");
-  s1.setAttribute("stop-color", "#f5a623");
-  s1.setAttribute("stop-opacity", "0.18");
-  const s2 = document.createElementNS(ns, "stop");
-  s2.setAttribute("offset", "100%");
-  s2.setAttribute("stop-color", "#f5a623");
-  s2.setAttribute("stop-opacity", "0");
-  grad.appendChild(s1);
-  grad.appendChild(s2);
+  const defs = svgEl("defs");
+  const grad = svgEl("linearGradient", { id: "chartGrad", x1: "0", y1: "0", x2: "0", y2: "1" });
+  grad.appendChild(svgEl("stop", { offset: "0%", "stop-color": "#f5a623", "stop-opacity": "0.18" }));
+  grad.appendChild(svgEl("stop", { offset: "100%", "stop-color": "#f5a623", "stop-opacity": "0" }));
   defs.appendChild(grad);
   svg.appendChild(defs);
 
   const baseY = h - pad - ((base - minV) / Math.max(maxV - minV, 1)) * (h - pad * 2);
-  const baseline = document.createElementNS(ns, "line");
-  baseline.setAttribute("x1", String(pad));
-  baseline.setAttribute("y1", baseY.toFixed(1));
-  baseline.setAttribute("x2", String(w - pad));
-  baseline.setAttribute("y2", baseY.toFixed(1));
-  baseline.setAttribute("stroke", "rgba(255,255,255,0.08)");
-  baseline.setAttribute("stroke-dasharray", "3 4");
-  svg.appendChild(baseline);
+  svg.appendChild(
+    svgEl("line", {
+      x1: pad,
+      y1: baseY.toFixed(1),
+      x2: w - pad,
+      y2: baseY.toFixed(1),
+      stroke: "rgba(255,255,255,0.08)",
+      "stroke-dasharray": "3 4",
+    })
+  );
 
   const coords = values.map((v, i) => {
     const x = pad + (i / Math.max(values.length - 1, 1)) * (w - pad * 2);
@@ -209,38 +213,295 @@ function renderBankrollChart(data) {
   const linePts = coords.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(" ");
   const areaPts = `${pad},${h - pad} ${linePts} ${coords[coords.length - 1][0].toFixed(1)},${h - pad}`;
 
-  const area = document.createElementNS(ns, "polygon");
-  area.setAttribute("fill", "url(#chartGrad)");
-  area.setAttribute("points", areaPts);
-  svg.appendChild(area);
-
-  const poly = document.createElementNS(ns, "polyline");
-  poly.setAttribute("fill", "none");
-  poly.setAttribute("stroke", "#f5a623");
-  poly.setAttribute("stroke-width", "1.75");
-  poly.setAttribute("points", linePts);
-  svg.appendChild(poly);
+  svg.appendChild(svgEl("polygon", { fill: "url(#chartGrad)", points: areaPts }));
+  svg.appendChild(svgEl("polyline", { fill: "none", stroke: "#f5a623", "stroke-width": "1.75", points: linePts }));
 
   const lastVal = values[values.length - 1];
-  const topTxt = document.createElementNS(ns, "text");
-  topTxt.setAttribute("x", String(pad));
-  topTxt.setAttribute("y", "14");
-  topTxt.setAttribute("fill", "#8b93a3");
-  topTxt.setAttribute("font-size", "10.5");
-  topTxt.setAttribute("font-family", "JetBrains Mono, monospace");
+  const topTxt = svgEl("text", {
+    x: pad,
+    y: 14,
+    fill: "#8b93a3",
+    "font-size": "10.5",
+    "font-family": "JetBrains Mono, monospace",
+  });
   topTxt.textContent = `${fmtBRL(lastVal)}  (máx ${fmtBRL(Math.max(...values))})`;
   svg.appendChild(topTxt);
 
-  const botTxt = document.createElementNS(ns, "text");
-  botTxt.setAttribute("x", String(pad));
-  botTxt.setAttribute("y", String(h - 5));
-  botTxt.setAttribute("fill", "#59606e");
-  botTxt.setAttribute("font-size", "10.5");
-  botTxt.setAttribute("font-family", "JetBrains Mono, monospace");
+  const botTxt = svgEl("text", {
+    x: pad,
+    y: h - 5,
+    fill: "#59606e",
+    "font-size": "10.5",
+    "font-family": "JetBrains Mono, monospace",
+  });
   botTxt.textContent = `mín ${fmtBRL(Math.min(...values))} · ${curve.length} entradas`;
   svg.appendChild(botTxt);
 
   box.appendChild(svg);
+}
+
+function renderBotAccuracyChart(data) {
+  const box = byId("botAccuracyChart");
+  const legend = byId("botChartLegend");
+  const statLabel = byId("botChartStat");
+  box.replaceChildren();
+  legend.replaceChildren();
+
+  const bot = data.bot_summary || {};
+  const mode = state.botChartMode;
+  const w = 720;
+  const h = 230;
+  const padL = 38;
+  const padR = 18;
+  const padT = 22;
+  const padB = 26;
+  const innerW = w - padL - padR;
+  const innerH = h - padT - padB;
+
+  let primarySeries = [];
+  let secondarySeries = [];
+  let labels = [];
+  let pName = "";
+  let sName = "";
+  let minY = 50;
+  let maxY = 100;
+
+  if (mode === "daily") {
+    const rows = bot.daily_accuracy_curve || [];
+    if (!rows.length) {
+      statLabel.textContent = "Sem histórico diário";
+      box.appendChild(node("p", "empty-cell", "Aguardando histórico de apostas."));
+      return;
+    }
+    primarySeries = rows.map((r) => Number(r.cum_hit_rate_pct));
+    secondarySeries = rows.map((r) => Number(r.hit_rate_pct));
+    labels = rows.map((r) => String(r.iso_date || "").slice(5));
+    const allVals = [...primarySeries, ...secondarySeries];
+    minY = Math.max(0, Math.floor((Math.min(...allVals) - 5) / 5) * 5);
+    maxY = Math.min(100, Math.ceil((Math.max(...allVals) + 3) / 5) * 5);
+    if (maxY - minY < 10) minY = Math.max(0, maxY - 15);
+    const last = rows[rows.length - 1];
+    statLabel.textContent = `Acumulado ${last.cum_hit_rate_pct}% · Hoje ${last.hit_rate_pct}% (${rows.length} dias)`;
+    pName = "Acerto acumulado (%)";
+    sName = "Acerto do dia (%)";
+  } else if (mode === "rolling") {
+    const rows = bot.rolling_accuracy_curve || [];
+    if (!rows.length) {
+      statLabel.textContent = "Sem histórico sequencial";
+      box.appendChild(node("p", "empty-cell", "Aguardando sequencial de apostas."));
+      return;
+    }
+    primarySeries = rows.map((r) => Number(r.rolling_hit_rate_pct));
+    secondarySeries = rows.map((r) => Number(r.cum_hit_rate_pct));
+    labels = rows.map((r) => `#${r.idx}`);
+    const allVals = [...primarySeries, ...secondarySeries];
+    minY = Math.max(0, Math.floor((Math.min(...allVals) - 5) / 5) * 5);
+    maxY = Math.min(100, Math.ceil((Math.max(...allVals) + 3) / 5) * 5);
+    if (maxY - minY < 10) minY = Math.max(0, maxY - 15);
+    const last = rows[rows.length - 1];
+    statLabel.textContent = `Rolling ${bot.rolling_window || 25}: ${last.rolling_hit_rate_pct}% · Média ${last.cum_hit_rate_pct}%`;
+    pName = `Janela móvel (${bot.rolling_window || 25} apostas)`;
+    sName = "Média acumulada (%)";
+  } else {
+    const rows = data.model_history || [];
+    if (!rows.length) {
+      statLabel.textContent = "Sem treinos registrados";
+      box.appendChild(node("p", "empty-cell", "Nenhum treino registrado ainda."));
+      return;
+    }
+    primarySeries = rows.map((r) => Number(r.lay_accuracy || 0));
+    secondarySeries = rows.map((r) => Number(r.top3_accuracy || 0));
+    labels = rows.map((r) => `#${r.id}`);
+    const allVals = [...primarySeries, ...secondarySeries];
+    minY = Math.max(0, Math.floor((Math.min(...allVals) - 5) / 5) * 5);
+    maxY = Math.min(100, Math.ceil((Math.max(...allVals) + 3) / 5) * 5);
+    if (maxY - minY < 10) minY = Math.max(0, maxY - 15);
+    const last = rows[rows.length - 1];
+    statLabel.textContent = `${bot.total_trainings ?? rows.length} treinos · Último Lay ${last.lay_accuracy}% · Log-Loss ${Number(last.log_loss).toFixed(4)}`;
+    pName = "Acerto Lay validação (%)";
+    sName = "Top-3 pódio (%)";
+  }
+
+  const svg = svgEl("svg", {
+    viewBox: `0 0 ${w} ${h}`,
+    role: "img",
+    "aria-label": "Curva de assertividade do robô",
+  });
+
+  const defs = svgEl("defs");
+  const grad = svgEl("linearGradient", { id: "botAccGrad", x1: "0", y1: "0", x2: "0", y2: "1" });
+  grad.appendChild(svgEl("stop", { offset: "0%", "stop-color": "#f5a623", "stop-opacity": "0.18" }));
+  grad.appendChild(svgEl("stop", { offset: "100%", "stop-color": "#f5a623", "stop-opacity": "0" }));
+  defs.appendChild(grad);
+  svg.appendChild(defs);
+
+  const yPos = (val) => padT + (1 - (val - minY) / Math.max(maxY - minY, 1)) * innerH;
+  const xPos = (i, len) => padL + (i / Math.max(len - 1, 1)) * innerW;
+
+  // Horizontal grid lines & Y axis labels
+  [minY, Math.round((minY + maxY) / 2), maxY].forEach((tick) => {
+    const yy = yPos(tick);
+    svg.appendChild(
+      svgEl("line", {
+        x1: padL,
+        y1: yy.toFixed(1),
+        x2: w - padR,
+        y2: yy.toFixed(1),
+        stroke: "rgba(255,255,255,0.06)",
+        "stroke-dasharray": "3 4",
+      })
+    );
+    const lbl = svgEl("text", {
+      x: padL - 6,
+      y: (yy + 3.5).toFixed(1),
+      fill: "#59606e",
+      "font-size": "10",
+      "text-anchor": "end",
+      "font-family": "JetBrains Mono, monospace",
+    });
+    lbl.textContent = `${tick}%`;
+    svg.appendChild(lbl);
+  });
+
+  // Secondary curve
+  if (secondarySeries.length) {
+    const secPts = secondarySeries.map((v, i) => `${xPos(i, secondarySeries.length).toFixed(1)},${yPos(v).toFixed(1)}`).join(" ");
+    svg.appendChild(
+      svgEl("polyline", {
+        fill: "none",
+        stroke: mode === "daily" ? "#22c55e" : "#8b93a3",
+        "stroke-width": "1.35",
+        "stroke-dasharray": mode === "rolling" ? "4 3" : "0",
+        "stroke-opacity": "0.75",
+        points: secPts,
+      })
+    );
+  }
+
+  // Primary curve + fill
+  const pCoords = primarySeries.map((v, i) => [xPos(i, primarySeries.length), yPos(v)]);
+  const pLine = pCoords.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(" ");
+  const pArea = `${padL},${padT + innerH} ${pLine} ${pCoords[pCoords.length - 1][0].toFixed(1)},${padT + innerH}`;
+  svg.appendChild(svgEl("polygon", { fill: "url(#botAccGrad)", points: pArea }));
+  svg.appendChild(svgEl("polyline", { fill: "none", stroke: "#f5a623", "stroke-width": "2", points: pLine }));
+
+  // Markers for start & latest point
+  if (pCoords.length <= 30) {
+    pCoords.forEach(([x, y]) => {
+      svg.appendChild(svgEl("circle", { cx: x.toFixed(1), cy: y.toFixed(1), r: "2.6", fill: "#f5a623" }));
+    });
+  } else {
+    const [lx, ly] = pCoords[pCoords.length - 1];
+    svg.appendChild(svgEl("circle", { cx: lx.toFixed(1), cy: ly.toFixed(1), r: "3.2", fill: "#f5a623" }));
+  }
+
+  // X axis first/mid/last labels
+  const idxTicks = labels.length > 2 ? [0, Math.floor((labels.length - 1) / 2), labels.length - 1] : [0, labels.length - 1];
+  Array.from(new Set(idxTicks)).forEach((idx) => {
+    if (!labels[idx]) return;
+    const xx = xPos(idx, labels.length);
+    const anchor = idx === 0 ? "start" : idx === labels.length - 1 ? "end" : "middle";
+    const xLbl = svgEl("text", {
+      x: xx.toFixed(1),
+      y: h - 6,
+      fill: "#59606e",
+      "font-size": "10",
+      "text-anchor": anchor,
+      "font-family": "JetBrains Mono, monospace",
+    });
+    xLbl.textContent = labels[idx];
+    svg.appendChild(xLbl);
+  });
+
+  box.appendChild(svg);
+
+  // Legend below chart
+  const l1 = node("span", "legend-item");
+  l1.appendChild(node("span", "legend-swatch"));
+  l1.appendChild(document.createTextNode(pName));
+  const l2 = node("span", "legend-item");
+  l2.appendChild(node("span", `legend-swatch ${mode === "daily" ? "is-green" : "is-muted"}`));
+  l2.appendChild(document.createTextNode(sName));
+  legend.appendChild(l1);
+  legend.appendChild(l2);
+}
+
+function renderBotDashboard(data) {
+  const bot = data.bot_summary || {};
+  const bt = data.backtest_summary || {};
+  const paper = data.paper_summary || {};
+  const model = data.latest_model || {};
+  const totals = data.totals || {};
+  const al = data.adaptive_learning || {};
+  const evo = bot.evolution_delta || {};
+
+  const hitPct = bot.bt_hit_rate_pct ?? bt.win_rate_pct ?? 0;
+  const errPct = bot.bt_error_rate_pct ?? 0;
+  byId("botAccValue").textContent = `${hitPct}%`;
+  byId("botErrorBadge").textContent = `Erro ${errPct}%`;
+  byId("botHitErrorSub").textContent = `${bot.bt_hits ?? bt.won_bets ?? 0} acertos · ${bot.bt_errors ?? bt.lost_bets ?? 0} erros (${bot.bt_total ?? bt.total_bets ?? 0} entr.)`;
+
+  byId("botTrainingsCount").textContent = `#${bot.total_trainings ?? 0}`;
+  byId("botArchBadge").textContent = model.model_name || "—";
+  byId("botTrainingSub").textContent = `${totals.total_races ?? 0} corridas · ${totals.total_entries ?? 0} entradas`;
+  byId("botLatestTrainAt").textContent = bot.last_training_at
+    ? `Último treino ${fmtShortDateTime(bot.last_training_at)}`
+    : "—";
+  byId("botDogsCountPill").textContent = `${totals.total_dogs ?? 0} galgos`;
+
+  byId("botTop1Val").textContent = `${model.top1_accuracy ?? 0}%`;
+  byId("botTop3Val").textContent = `${model.top3_accuracy ?? 0}%`;
+  byId("botEvoSub").textContent = model.log_loss != null
+    ? `Log-Loss ${Number(model.log_loss).toFixed(4)} · Brier ${Number(model.brier_score).toFixed(4)}`
+    : "Aguardando treino";
+
+  const evoBadge = byId("botEvoBadge");
+  if (evo.log_loss_delta != null) {
+    const improved = Number(evo.log_loss_delta) <= 0;
+    const ppSign = Number(evo.lay_accuracy_delta_pp || 0) >= 0 ? "+" : "";
+    evoBadge.className = `tag mono ${improved ? "tag-green" : "tag-amber"}`;
+    evoBadge.textContent = `${ppSign}${evo.lay_accuracy_delta_pp ?? 0} pp`;
+  } else {
+    evoBadge.className = "tag mono";
+    evoBadge.textContent = "Base inicial";
+  }
+
+  const liveTotal = bot.live_total ?? paper.total_bets ?? 0;
+  byId("botLiveRatio").textContent = liveTotal > 0 ? `${bot.live_hit_rate_pct ?? 0}%` : "Aguardando";
+  const adapB = byId("botAdaptiveBadge");
+  adapB.className = `tag mono ${al.defensive_mode ? "tag-amber" : "tag-green"}`;
+  adapB.textContent = al.defensive_mode ? "Defensivo" : "Normal";
+  byId("botAdaptiveSub").textContent = `${al.blocked_contexts_count ?? 0} bloqueios · ${al.races_protected_count ?? 0} evitadas · Ao vivo ${bot.live_hits ?? 0}W/${bot.live_errors ?? 0}L`;
+
+  renderBotAccuracyChart(data);
+
+  // Error breakdown
+  const errs = bot.error_breakdown || [];
+  const errBox = byId("botErrorBreakdown");
+  errBox.replaceChildren();
+  byId("botTotalErrorsPill").textContent = `${bot.bt_errors ?? 0} erros`;
+
+  if (!errs.length) {
+    errBox.appendChild(node("p", "empty-cell", "Nenhum erro registrado no backtest."));
+  } else {
+    const maxCnt = Math.max(...errs.map((e) => Number(e.count || 0)), 1);
+    errs.forEach((e) => {
+      const item = node("div", "breakdown-item");
+      const head = node("div", "breakdown-head");
+      const reasonEl = node("span", "breakdown-reason", e.reason);
+      reasonEl.title = e.reason;
+      head.appendChild(reasonEl);
+      head.appendChild(node("span", "breakdown-meta mono", `${e.count}x (${e.share_pct}%) · -${fmtBRL(e.total_loss_brl)}`));
+      item.appendChild(head);
+
+      const prog = document.createElement("progress");
+      prog.className = "thin-progress err-progress";
+      prog.max = maxCnt;
+      prog.value = Number(e.count || 0);
+      item.appendChild(prog);
+      errBox.appendChild(item);
+    });
+  }
 }
 
 function renderQuickUpcoming(upcoming) {
@@ -373,13 +634,22 @@ function renderAdaptiveLearning(al) {
     `Risco máx: ${al.active_max_risk_pct ?? 15}%`,
   ].forEach((txt) => bar.appendChild(node("span", "", txt)));
 
-  (al.contexts || []).forEach((c) => {
+  const contexts = al.contexts || [];
+  if (!contexts.length) {
+    const tr = document.createElement("tr");
+    const td = node("td", "empty-cell", "Sem contextos avaliados ainda.");
+    td.colSpan = 5;
+    tr.appendChild(td);
+    tbody.appendChild(tr);
+    return;
+  }
+
+  contexts.forEach((c) => {
     const tr = document.createElement("tr");
     tr.appendChild(node("td", "", c.context));
     tr.appendChild(node("td", "num", c.bets));
     tr.appendChild(node("td", "num", `${c.win_pct}%`));
     tr.appendChild(node("td", `num ${c.roi_pct >= 0 ? "pos" : "neg"}`, `${c.roi_pct}%`));
-    tr.appendChild(node("td", "num", `${c.pred_win_pct}% / ${c.actual_win_pct}%`));
     const stTd = document.createElement("td");
     const isBlocked = c.status === "BLOQUEADO";
     stTd.appendChild(node("span", `tag ${isBlocked ? "tag-red" : "tag-green"}`, c.status));
@@ -420,14 +690,17 @@ function renderFeatures(features) {
   const maxW = Math.max(...(features || []).map((f) => Number(f.weight || 0)), 1);
   (features || []).forEach((f) => {
     const row = node("div", "feat-row");
-    row.appendChild(node("span", "", f.label || f.feature));
-    const meter = document.createElement("meter");
-    meter.className = "feat-meter";
-    meter.min = 0;
-    meter.max = maxW;
-    meter.value = Number(f.weight || 0);
-    row.appendChild(meter);
-    row.appendChild(node("span", "mono", `${Number(f.weight || 0).toFixed(1)}%`));
+    const lbl = node("span", "feat-label", f.label || f.feature);
+    lbl.title = f.label || f.feature;
+    row.appendChild(lbl);
+
+    const prog = document.createElement("progress");
+    prog.className = "thin-progress";
+    prog.max = maxW;
+    prog.value = Number(f.weight || 0);
+    row.appendChild(prog);
+
+    row.appendChild(node("span", "feat-pct mono", `${Number(f.weight || 0).toFixed(1)}%`));
     list.appendChild(row);
   });
 }
@@ -492,6 +765,7 @@ function renderOverview(data) {
   renderQuickUpcoming(data.upcoming_bets);
   renderUpcomingTable(data.upcoming_bets);
   renderBankrollChart(data);
+  renderBotDashboard(data);
   renderFeatures(data.feature_importances);
   renderRiskAndCalibration(data.simulation_rules, bt, data.calibration_buckets);
   renderAdaptiveLearning(al);
@@ -522,13 +796,17 @@ function renderOverview(data) {
   mhBody.replaceChildren();
   (data.model_history || []).slice().reverse().forEach((m) => {
     const tr = document.createElement("tr");
+    const errRate = m.error_rate_pct != null ? m.error_rate_pct : Math.max(0, 100 - Number(m.lay_accuracy || 0)).toFixed(2);
+    const sampleTxt = m.train_races ? `${m.train_races}/${m.val_races}` : `${m.val_races ?? 0}`;
     [
       [`#${m.id}`, "mono"],
+      [fmtShortDateTime(m.created_at), "mono"],
       [m.model_name, ""],
-      [m.val_races, "num"],
+      [sampleTxt, "num"],
       [Number(m.log_loss).toFixed(4), "num"],
-      [Number(m.brier_score).toFixed(4), "num"],
-      [`${m.lay_accuracy}%`, "num"],
+      [`${m.top1_accuracy ?? 0}%`, "num"],
+      [`${m.lay_accuracy}%`, "num pos"],
+      [`${errRate}%`, "num neg"],
       [`${m.lay_roi_pct}%`, "num"],
     ].forEach(([val, cls]) => tr.appendChild(node("td", cls, val)));
     mhBody.appendChild(tr);
@@ -884,6 +1162,19 @@ byId("btnChartLive").addEventListener("click", () => {
   byId("btnChartLive").classList.add("is-active");
   byId("btnChartBacktest").classList.remove("is-active");
   if (state.overview) renderBankrollChart(state.overview);
+});
+
+const botModeBtns = [
+  ["btnBotDaily", "daily"],
+  ["btnBotRolling", "rolling"],
+  ["btnBotTraining", "training"],
+];
+botModeBtns.forEach(([id, mode]) => {
+  byId(id).addEventListener("click", () => {
+    state.botChartMode = mode;
+    botModeBtns.forEach(([bId, m]) => byId(bId).classList.toggle("is-active", m === mode));
+    if (state.overview) renderBotAccuracyChart(state.overview);
+  });
 });
 
 byId("bankrollForm").addEventListener("submit", async (e) => {

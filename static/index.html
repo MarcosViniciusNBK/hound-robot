@@ -31,15 +31,20 @@
           <span class="nav-label">Dashboard</span>
         </button>
 
+        <button id="tabBtn-bot" class="nav-link" type="button" role="tab" aria-selected="false" aria-controls="panel-bot" data-tab="bot" data-title="Robô &amp; Evolução" tabindex="-1">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="7" width="16" height="12" rx="2"/><path d="M12 3v4"/><circle cx="9" cy="13" r="1"/><circle cx="15" cy="13" r="1"/></svg>
+          <span class="nav-label">Robô</span>
+        </button>
+
         <button id="tabBtn-races" class="nav-link" type="button" role="tab" aria-selected="false" aria-controls="panel-races" data-tab="races" data-title="Corridas" tabindex="-1">
           <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>
           <span class="nav-label">Corridas</span>
           <span id="navUpcomingPill" class="nav-count mono" hidden>0</span>
         </button>
 
-        <button id="tabBtn-performance" class="nav-link" type="button" role="tab" aria-selected="false" aria-controls="panel-performance" data-tab="performance" data-title="Performance" tabindex="-1">
+        <button id="tabBtn-performance" class="nav-link" type="button" role="tab" aria-selected="false" aria-controls="panel-performance" data-tab="performance" data-title="Risco &amp; Auditoria" tabindex="-1">
           <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 3v18h18"/><path d="M18 9l-5 5-4-4-3 3"/></svg>
-          <span class="nav-label">Performance</span>
+          <span class="nav-label">Risco</span>
         </button>
 
         <button id="tabBtn-tools" class="nav-link" type="button" role="tab" aria-selected="false" aria-controls="panel-tools" data-tab="tools" data-title="Simulador &amp; Logs" tabindex="-1">
@@ -76,7 +81,7 @@
         </div>
 
         <div class="topbar-group">
-          <span id="lastRunLabel" class="meta-text mono">—</span>
+          <span id="lastRunLabel" class="meta-text mono hide-xs">—</span>
           <button id="btnOpenBankrollModal" type="button" class="btn btn-outline btn-sm">
             Banca <strong id="topBankrollValue" class="mono">R$ 100,00</strong>
           </button>
@@ -154,7 +159,7 @@
           <section class="surface surface-flush">
             <div class="surface-head pad-head">
               <h2>Últimas Liquidações</h2>
-              <button id="btnJumpPerf" type="button" class="text-btn">Performance</button>
+              <button id="btnJumpBot" type="button" class="text-btn">Ver robô</button>
             </div>
             <div class="table-wrap">
               <table class="tbl">
@@ -169,6 +174,109 @@
                   </tr>
                 </thead>
                 <tbody id="recentSettledBody"></tbody>
+              </table>
+            </div>
+          </section>
+        </section>
+
+        <!-- ROBÔ & EVOLUÇÃO -->
+        <section id="panel-bot" class="tab-panel" role="tabpanel" aria-labelledby="tabBtn-bot" hidden>
+          <section class="kpi-strip" aria-label="Indicadores do Robô">
+            <div class="kpi-cell">
+              <div class="kpi-head">
+                <span class="kpi-name">Acerto vs Erro (Lay)</span>
+                <span id="botErrorBadge" class="tag tag-red mono">Erro 0,0%</span>
+              </div>
+              <strong id="botAccValue" class="kpi-num mono">0,0%</strong>
+              <span id="botHitErrorSub" class="kpi-foot mono">0 acertos · 0 erros</span>
+            </div>
+
+            <div class="kpi-cell">
+              <div class="kpi-head">
+                <span class="kpi-name">Treinos Executados</span>
+                <span id="botArchBadge" class="tag tag-amber mono">—</span>
+              </div>
+              <strong id="botTrainingsCount" class="kpi-num mono">0</strong>
+              <span id="botTrainingSub" class="kpi-foot mono">0 corridas · 0 entradas</span>
+            </div>
+
+            <div class="kpi-cell">
+              <div class="kpi-head">
+                <span class="kpi-name">Evolução do Modelo</span>
+                <span id="botEvoBadge" class="tag mono">—</span>
+              </div>
+              <div class="kpi-pair mono">
+                <span>Top-1 <strong id="botTop1Val">0%</strong></span>
+                <span>Top-3 <strong id="botTop3Val">0%</strong></span>
+              </div>
+              <span id="botEvoSub" class="kpi-foot mono">Log-Loss — · Brier —</span>
+            </div>
+
+            <div class="kpi-cell">
+              <div class="kpi-head">
+                <span class="kpi-name">Autoaprendizado</span>
+                <span id="botAdaptiveBadge" class="tag mono">Normal</span>
+              </div>
+              <strong id="botLiveRatio" class="kpi-num mono">—</strong>
+              <span id="botAdaptiveSub" class="kpi-foot mono">0 bloqueios · 0 evitadas</span>
+            </div>
+          </section>
+
+          <section class="surface">
+            <div class="surface-head">
+              <div class="surface-title-group">
+                <h2>Curva de Acerto do Bot</h2>
+                <span id="botChartStat" class="mono meta-text">—</span>
+              </div>
+              <div class="tab-pills" role="group" aria-label="Modo da curva do bot">
+                <button id="btnBotDaily" type="button" class="tab-pill is-active">Diário</button>
+                <button id="btnBotRolling" type="button" class="tab-pill">Rolling 25</button>
+                <button id="btnBotTraining" type="button" class="tab-pill">Treinos ML</button>
+              </div>
+            </div>
+            <div id="botAccuracyChart" class="chart-area"></div>
+            <div id="botChartLegend" class="chart-legend mono"></div>
+          </section>
+
+          <div class="two-col">
+            <section class="surface">
+              <div class="surface-head">
+                <h2>Motivos de Erro</h2>
+                <span id="botTotalErrorsPill" class="tag mono">0 erros</span>
+              </div>
+              <div id="botErrorBreakdown" class="breakdown-list"></div>
+            </section>
+
+            <section class="surface">
+              <div class="surface-head">
+                <h2>Pesos do Modelo</h2>
+                <span id="botDogsCountPill" class="tag mono">0 galgos</span>
+              </div>
+              <div id="featureList" class="feature-list"></div>
+            </section>
+          </div>
+
+          <section class="surface surface-flush">
+            <div class="surface-head pad-head">
+              <h2>Histórico de Treinos (ML)</h2>
+              <span id="botLatestTrainAt" class="meta-text mono">—</span>
+            </div>
+            <div class="table-wrap">
+              <table class="tbl">
+                <thead>
+                  <tr>
+                    <th scope="col">Treino</th>
+                    <th scope="col">Data</th>
+                    <th scope="col">Modelo</th>
+                    <th scope="col" class="num">Treino / Val</th>
+                    <th scope="col" class="num">Log-Loss</th>
+                    <th scope="col" class="num">Top-1</th>
+                    <th scope="col" class="num">Acerto</th>
+                    <th scope="col" class="num">Erro</th>
+                    <th scope="col" class="num">ROI</th>
+                  </tr>
+                </thead>
+                <tbody id="modelHistoryBody"></tbody>
               </table>
             </div>
           </section>
@@ -242,34 +350,33 @@
           </section>
         </section>
 
-        <!-- PERFORMANCE -->
+        <!-- RISCO & AUDITORIA -->
         <section id="panel-performance" class="tab-panel" role="tabpanel" aria-labelledby="tabBtn-performance" hidden>
           <div id="simRulesBar" class="inline-metrics mono" aria-live="polite"></div>
 
-          <section class="surface surface-flush">
-            <div class="surface-head pad-head">
-              <h2>Autoaprendizado por Contexto</h2>
-              <span id="adaptiveModeBadge" class="tag mono">Normal</span>
-            </div>
-            <div id="adaptiveMetaBar" class="inline-metrics pad-sub mono"></div>
-            <div class="table-wrap">
-              <table class="tbl">
-                <thead>
-                  <tr>
-                    <th scope="col">Contexto</th>
-                    <th scope="col" class="num">Entradas</th>
-                    <th scope="col" class="num">Acerto</th>
-                    <th scope="col" class="num">ROI</th>
-                    <th scope="col" class="num">Prev. / Real</th>
-                    <th scope="col">Estado</th>
-                  </tr>
-                </thead>
-                <tbody id="adaptiveBody"></tbody>
-              </table>
-            </div>
-          </section>
-
           <div class="two-col">
+            <section class="surface surface-flush">
+              <div class="surface-head pad-head">
+                <h2>Autoaprendizado por Contexto</h2>
+                <span id="adaptiveModeBadge" class="tag mono">Normal</span>
+              </div>
+              <div id="adaptiveMetaBar" class="inline-metrics pad-sub mono"></div>
+              <div class="table-wrap">
+                <table class="tbl">
+                  <thead>
+                    <tr>
+                      <th scope="col">Contexto</th>
+                      <th scope="col" class="num">Entr.</th>
+                      <th scope="col" class="num">Acerto</th>
+                      <th scope="col" class="num">ROI</th>
+                      <th scope="col">Estado</th>
+                    </tr>
+                  </thead>
+                  <tbody id="adaptiveBody"></tbody>
+                </table>
+              </div>
+            </section>
+
             <section class="surface surface-flush">
               <div class="surface-head pad-head">
                 <h2>Calibração</h2>
@@ -289,36 +396,7 @@
                 </table>
               </div>
             </section>
-
-            <section class="surface">
-              <div class="surface-head">
-                <h2>Indicadores do Modelo</h2>
-              </div>
-              <div id="featureList" class="feature-list"></div>
-            </section>
           </div>
-
-          <section class="surface surface-flush">
-            <div class="surface-head pad-head">
-              <h2>Ciclos de Treinamento</h2>
-            </div>
-            <div class="table-wrap">
-              <table class="tbl">
-                <thead>
-                  <tr>
-                    <th scope="col">Ciclo</th>
-                    <th scope="col">Modelo</th>
-                    <th scope="col" class="num">Val</th>
-                    <th scope="col" class="num">Log-Loss</th>
-                    <th scope="col" class="num">Brier</th>
-                    <th scope="col" class="num">Lay</th>
-                    <th scope="col" class="num">ROI</th>
-                  </tr>
-                </thead>
-                <tbody id="modelHistoryBody"></tbody>
-              </table>
-            </div>
-          </section>
 
           <section class="surface surface-flush">
             <div class="surface-head pad-head">

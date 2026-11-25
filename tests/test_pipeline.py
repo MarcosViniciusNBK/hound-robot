@@ -125,6 +125,10 @@ def test_end_to_end_pipeline_and_api(tmp_path: Path, monkeypatch) -> None:
         assert "total_lost_amount" in ov_json["paper_summary"]
         assert "is_profit" in ov_json["paper_summary"]
         assert "live_curve" in ov_json
+        assert "bot_summary" in ov_json
+        assert ov_json["bot_summary"]["total_trainings"] >= 1
+        assert "daily_accuracy_curve" in ov_json["bot_summary"]
+        assert "rolling_accuracy_curve" in ov_json["bot_summary"]
 
         rc = client.get("/api/races?date=2026-11-21")
         assert rc.status_code == 200

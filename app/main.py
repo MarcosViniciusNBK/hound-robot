@@ -141,8 +141,17 @@ def get_overview(selected_date: str | None = Query(default=None, alias="date")) 
         latest_model = conn.execute(
             "SELECT * FROM model_runs ORDER BY id DESC LIMIT 1"
         ).fetchone()
+        training_agg = conn.execute(
+            "SELECT COUNT(*) AS total_trainings, MIN(created_at) AS first_training_at, MAX(created_at) AS last_training_at FROM model_runs"
+        ).fetchone()
         model_history_rows = conn.execute(
-            "SELECT id, created_at, model_name, log_loss, brier_score, top1_accuracy, top3_accuracy, lay_accuracy, lay_roi_pct, val_races FROM model_runs ORDER BY id DESC LIMIT 15"
+            """
+            SELECT id, created_at, model_name, train_races, val_races, train_entries, val_entries,
+                   log_loss, brier_score, top1_accuracy, top3_accuracy, lay_accuracy, lay_roi_pct, lay_bets_count
+            FROM model_runs
+            ORDER BY id DESC
+            LIMIT 60
+            """
         ).fetchall()
 
         paper_stats = conn.execute(
@@ -188,7 +197,7 @@ def get_overview(selected_date: str | None = Query(default=None, alias="date")) 
 
         bankroll_rows = conn.execute(
             """
-            SELECT id, iso_date, track_name, race_number, dog_name, lay_odds, status, pnl, bankroll_after
+            SELECT id, iso_date, track_name, race_number, dog_name, lay_odds, status, pnl, bankroll_after, error_reason
             FROM backtest_bets
             ORDER BY id ASC
             """
@@ -249,6 +258,94 @@ def get_overview(selected_date: str | None = Query(default=None, alias="date")) 
     bt_risked = float(backtest_stats["total_risked"] or 0.0)
     bt_pnls = [float(r["pnl"]) for r in bankroll_rows]
     bt_risk_metrics = compute_portfolio_metrics(bt_pnls, bankroll_start)
+
+    # Bot accuracy curves, error breakdown, and training evolution
+    daily_map: dict[str, dict[str, int]] = {}
+    err_reason_map: dict[str, dict[str, float]] = {}
+    seq_outcomes: list[tuple[str, int]] = []
+    for r in bankroll_rows:
+        d_iso = str(r["iso_date"] or "")
+        is_hit = 1 if r["status"] == "WON_LAY" else 0
+        seq_outcomes.append((d_iso, is_hit))
+        if d_iso not in daily_map:
+            daily_map[d_iso] = {"bets": 0, "hits": 0, "errors": 0}
+        daily_map[d_iso]["bets"] += 1
+        if is_hit:
+            daily_map[d_iso]["hits"] += 1
+        else:
+            daily_map[d_iso]["errors"] += 1
+            reason_key = str(r["error_reason"] or "").strip() or "Sem motivo especificado"
+            if reason_key not in err_reason_map:
+                err_reason_map[reason_key] = {"count": 0.0, "loss": 0.0}
+            err_reason_map[reason_key]["count"] += 1.0
+            err_reason_map[reason_key]["loss"] += abs(float(r["pnl"] or 0.0))
+
+    daily_accuracy_curve: list[dict[str, Any]] = []
+    cum_bets = 0
+    cum_hits = 0
+    for d_iso in sorted(daily_map.keys()):
+        d_stat = daily_map[d_iso]
+        b_cnt = d_stat["bets"]
+        h_cnt = d_stat["hits"]
+        e_cnt = d_stat["errors"]
+        cum_bets += b_cnt
+        cum_hits += h_cnt
+        hit_pct = round((h_cnt / b_cnt) * 100.0, 2) if b_cnt > 0 else 0.0
+        cum_hit_pct = round((cum_hits / cum_bets) * 100.0, 2) if cum_bets > 0 else 0.0
+        daily_accuracy_curve.append(
+            {
+                "iso_date": d_iso,
+                "bets": b_cnt,
+                "hits": h_cnt,
+                "errors": e_cnt,
+                "hit_rate_pct": hit_pct,
+                "error_rate_pct": round(100.0 - hit_pct, 2),
+                "cum_bets": cum_bets,
+                "cum_hits": cum_hits,
+                "cum_hit_rate_pct": cum_hit_pct,
+            }
+        )
+
+    rolling_accuracy_curve: list[dict[str, Any]] = []
+    if seq_outcomes:
+        win_size = min(25, len(seq_outcomes))
+        run_cum_hits = 0
+        raw_rolling: list[dict[str, Any]] = []
+        for idx, (d_iso, hit_flag) in enumerate(seq_outcomes, start=1):
+            run_cum_hits += hit_flag
+            start_w = max(0, idx - win_size)
+            window_slice = seq_outcomes[start_w:idx]
+            roll_pct = round((sum(x[1] for x in window_slice) / len(window_slice)) * 100.0, 2)
+            cum_pct = round((run_cum_hits / idx) * 100.0, 2)
+            raw_rolling.append(
+                {
+                    "idx": idx,
+                    "iso_date": d_iso,
+                    "rolling_hit_rate_pct": roll_pct,
+                    "cum_hit_rate_pct": cum_pct,
+                }
+            )
+        if len(raw_rolling) <= 100:
+            rolling_accuracy_curve = raw_rolling
+        else:
+            step = max(1, len(raw_rolling) // 100)
+            rolling_accuracy_curve = raw_rolling[::step]
+            if rolling_accuracy_curve[-1]["idx"] != raw_rolling[-1]["idx"]:
+                rolling_accuracy_curve.append(raw_rolling[-1])
+
+    total_err_count = sum(int(v["count"]) for v in err_reason_map.values())
+    error_breakdown = sorted(
+        [
+            {
+                "reason": k,
+                "count": int(v["count"]),
+                "share_pct": round((v["count"] / total_err_count) * 100.0, 1) if total_err_count else 0.0,
+                "total_loss_brl": round(v["loss"], 2),
+            }
+            for k, v in err_reason_map.items()
+        ],
+        key=lambda x: (-x["count"], -x["total_loss_brl"]),
+    )
     try:
         calibration_buckets = json.loads(cal_row["value"]) if cal_row else []
     except Exception:
@@ -286,6 +383,29 @@ def get_overview(selected_date: str | None = Query(default=None, alias="date")) 
             }
         )
 
+    model_evo = []
+    for mr in reversed(model_history_rows):
+        d = dict(mr)
+        d["error_rate_pct"] = round(max(0.0, 100.0 - float(d.get("lay_accuracy") or 0.0)), 2)
+        model_evo.append(d)
+
+    first_model = model_evo[0] if model_evo else None
+    last_model = model_evo[-1] if model_evo else None
+    evolution_delta = {}
+    if first_model and last_model:
+        evolution_delta = {
+            "log_loss_delta": round(float(last_model["log_loss"]) - float(first_model["log_loss"]), 4),
+            "brier_delta": round(float(last_model["brier_score"]) - float(first_model["brier_score"]), 4),
+            "lay_accuracy_delta_pp": round(float(last_model["lay_accuracy"]) - float(first_model["lay_accuracy"]), 2),
+            "top1_accuracy_delta_pp": round(float(last_model["top1_accuracy"]) - float(first_model["top1_accuracy"]), 2),
+        }
+
+    total_trainings = int(training_agg["total_trainings"] or 0) if training_agg else len(model_evo)
+    bt_hit_pct = round((bt_won / bt_total) * 100.0, 2) if bt_total > 0 else 0.0
+    bt_err_pct = round(max(0.0, 100.0 - bt_hit_pct), 2) if bt_total > 0 else 0.0
+    live_hit_pct = round((won_bets / settled_bets) * 100.0, 2) if settled_bets > 0 else 0.0
+    live_err_pct = round(max(0.0, 100.0 - live_hit_pct), 2) if settled_bets > 0 else 0.0
+
     return {
         "status": dict(coordinator.state),
         "active_date": active_date,
@@ -293,7 +413,27 @@ def get_overview(selected_date: str | None = Query(default=None, alias="date")) 
         "totals": dict(totals) if totals else {},
         "latest_model": latest_model_dict,
         "feature_importances": feature_importances,
-        "model_history": [dict(r) for r in reversed(model_history_rows)],
+        "model_history": model_evo,
+        "bot_summary": {
+            "total_trainings": total_trainings,
+            "first_training_at": training_agg["first_training_at"] if training_agg else None,
+            "last_training_at": training_agg["last_training_at"] if training_agg else None,
+            "bt_hits": bt_won,
+            "bt_errors": bt_lost,
+            "bt_total": bt_total,
+            "bt_hit_rate_pct": bt_hit_pct,
+            "bt_error_rate_pct": bt_err_pct,
+            "live_hits": won_bets,
+            "live_errors": lost_bets,
+            "live_total": settled_bets,
+            "live_hit_rate_pct": live_hit_pct,
+            "live_error_rate_pct": live_err_pct,
+            "rolling_window": min(25, len(seq_outcomes)) if seq_outcomes else 25,
+            "evolution_delta": evolution_delta,
+            "daily_accuracy_curve": daily_accuracy_curve,
+            "rolling_accuracy_curve": rolling_accuracy_curve,
+            "error_breakdown": error_breakdown,
+        },
         "paper_summary": {
             "start_bankroll": bankroll_start,
             "lay_stake": lay_stake,
