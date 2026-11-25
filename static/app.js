@@ -72,6 +72,7 @@ function activateTab(targetBtn) {
   });
   byId("pageTitle").textContent = targetBtn.dataset.title || "Dashboard";
   byId("sidebar").classList.remove("is-open");
+  window.scrollTo({ top: 0, behavior: "instant" });
 }
 
 tabButtons.forEach((btn, idx) => {
@@ -442,8 +443,15 @@ function renderBotDashboard(data) {
   byId("botHitErrorSub").textContent = `${bot.bt_hits ?? bt.won_bets ?? 0} acertos · ${bot.bt_errors ?? bt.lost_bets ?? 0} erros (${bot.bt_total ?? bt.total_bets ?? 0} entr.)`;
 
   byId("botTrainingsCount").textContent = `#${bot.total_trainings ?? 0}`;
-  byId("botArchBadge").textContent = model.model_name || "—";
-  byId("botTrainingSub").textContent = `${totals.total_races ?? 0} corridas · ${totals.total_entries ?? 0} entradas`;
+  const modelName = String(model.model_name || "");
+  byId("botArchBadge").textContent = modelName.includes("Ensemble")
+    ? "Ensemble"
+    : modelName.includes("HistGBDT")
+      ? "HistGBDT"
+      : modelName
+        ? "Logístico"
+        : "Ativo";
+  byId("botTrainingSub").textContent = `${modelName || "—"} · ${totals.total_races ?? 0} corridas`;
   byId("botLatestTrainAt").textContent = bot.last_training_at
     ? `Último treino ${fmtShortDateTime(bot.last_training_at)}`
     : "—";
@@ -824,7 +832,7 @@ function renderOverview(data) {
   } else {
     errs.forEach((e) => {
       const tr = document.createElement("tr");
-      tr.appendChild(node("td", "mono", e.iso_date));
+      tr.appendChild(node("td", "mono nowrap", e.iso_date));
       tr.appendChild(node("td", "", `${e.track_name} · P${e.race_number}`));
       const dogTd = document.createElement("td");
       const wrap = node("div", "runner-cell");

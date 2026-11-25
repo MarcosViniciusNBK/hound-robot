@@ -92,6 +92,10 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
+.nowrap {
+  white-space: nowrap;
+}
+
 .sr-only {
   position: absolute;
   width: 1px;
@@ -496,7 +500,8 @@ input[type="number"] {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 8px;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 
 .kpi-name {
@@ -569,6 +574,7 @@ input[type="number"] {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 16px;
+  align-items: start;
 }
 
 .surface {
@@ -756,16 +762,16 @@ input[type="number"] {
   display: flex;
   justify-content: space-between;
   align-items: baseline;
-  gap: 10px;
+  flex-wrap: wrap;
+  gap: 6px 10px;
   font-size: 12.5px;
 }
 
 .breakdown-reason {
   color: var(--text-primary);
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
+  line-height: 1.35;
 }
 
 .breakdown-meta {
@@ -909,9 +915,9 @@ input[type="number"] {
 .trap-4 { background: #14171d; color: #fff; border: 1px solid #475569; }
 .trap-5 { background: #ea580c; color: #fff; }
 .trap-6 {
-  background: repeating-linear-gradient(135deg, #1b1f27 0 4px, #3b4252 4px 8px);
+  background: linear-gradient(180deg, #e2e8f0 0 22%, #11141a 22% 78%, #e2e8f0 78% 100%);
   color: #ffffff;
-  border: 1px solid rgba(255, 255, 255, 0.28);
+  border: 1px solid rgba(255, 255, 255, 0.35);
 }
 
 /* SIMULATOR & LOGS */
