@@ -153,6 +153,11 @@ def test_end_to_end_pipeline_and_api(tmp_path: Path, monkeypatch) -> None:
         assert sim_json["probable_winner"]["dog_name"] == "Hound_1"
         assert 1 < sim_json["lay_pick"]["predicted_rank"] < 4
 
+        # Test SQLite WAL checkpoint endpoint used by daily backup scripts
+        chk = client.post("/api/admin/checkpoint")
+        assert chk.status_code == 200
+        assert chk.json() == {"ok": True}
+
         # Test bankroll config update in BRL
         cfg = client.post(
             "/api/settings/bankroll",

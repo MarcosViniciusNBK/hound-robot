@@ -1,0 +1,9 @@
+.git/
+.venv/
+__pycache__/
+**/__pycache__/
+*.py[cod]
+.pytest_cache/
+data/*.db-wal
+data/*.db-shm
+.env

@@ -502,6 +502,14 @@ def get_races(
     }
 
 
+@app.post("/api/admin/checkpoint")
+def checkpoint_sqlite() -> dict[str, Any]:
+    """Flush SQLite WAL safely before daily git backup commits."""
+    with get_conn(settings.db_path) as conn:
+        conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+    return {"ok": True}
+
+
 @app.post("/api/study/run")
 async def trigger_study(req: StudyTriggerRequest | None = None) -> dict[str, Any]:
     if coordinator.state.get("running"):

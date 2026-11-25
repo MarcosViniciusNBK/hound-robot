@@ -1,0 +1,34 @@
+services:
+  hound-robot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: hound-robot
+    restart: unless-stopped
+    ports:
+      - "${HOUND_PORT:-8000}:8000"
+    environment:
+      HOUND_HOST: "0.0.0.0"
+      HOUND_PORT: "8000"
+      TZ: "${TZ:-America/Sao_Paulo}"
+    volumes:
+      - ./data:/app/data
+
+  # Sidecar opcional para servidor Linux/VPS (ative com: docker compose --profile autocommit up -d)
+  git-autocommit:
+    image: alpine/git:latest
+    container_name: hound-robot-git-sync
+    profiles: ["autocommit"]
+    restart: unless-stopped
+    depends_on:
+      - hound-robot
+    environment:
+      TZ: "${TZ:-America/Sao_Paulo}"
+      GIT_AUTHOR_NAME: "${GIT_AUTHOR_NAME:-Hound Robot}"
+      GIT_AUTHOR_EMAIL: "${GIT_AUTHOR_EMAIL:-hound-robot@local}"
+      GIT_BRANCH: "${GIT_BRANCH:-main}"
+      GITHUB_TOKEN: "${GITHUB_TOKEN:-}"
+      BACKUP_INTERVAL_SEC: "${BACKUP_INTERVAL_SEC:-86400}"
+    volumes:
+      - .:/repo
+    entrypoint: ["/bin/sh", "/repo/scripts/daily_backup_commit.sh"]
