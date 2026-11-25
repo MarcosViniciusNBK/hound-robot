@@ -3,327 +3,440 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="description" content="Banca de testes em Reais (R$) com estudo automático de corridas passadas e apostas fictícias em corridas futuras com resultados verdadeiros." />
-  <title>Hound Robot — Banca de Testes em Reais (R$)</title>
+  <meta name="description" content="Hound Robot — Painel analítico escuro em tempo real para estudo de corridas de galgos, autoaprendizado e banca simulada em Reais (R$)." />
+  <title>Hound Robot — Analytics &amp; Lay Trading</title>
   <link rel="stylesheet" href="/static/styles.css" />
   <script src="/static/app.js" defer></script>
 </head>
 <body>
   <a class="skip-link" href="#mainContent">Pular para o conteúdo principal</a>
 
-  <div class="layout">
-    <header class="header">
-      <div class="brand">
-        <div class="brand-mark" aria-hidden="true">HR</div>
-        <div>
-          <h1>Hound Robot</h1>
-          <p class="subtitle">Banca de Testes em Reais (R$) • Apostas Fictícias Pré-Corrida com Resultados Reais (GBGB)</p>
+  <div class="app-frame">
+    <!-- SIDEBAR -->
+    <aside id="sidebar" class="sidebar" aria-label="Navegação principal">
+      <div class="sidebar-brand">
+        <div class="brand-logo" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 2L19 6.5V15.5L12 20L5 15.5V6.5L12 2Z" />
+            <circle cx="12" cy="11" r="3" />
+          </svg>
         </div>
+        <div class="brand-text">
+          <span class="brand-name">Hound<strong>Robot</strong></span>
+          <span class="brand-tag">Lay Analytics • GBGB</span>
+        </div>
+        <button id="btnCollapseSidebar" type="button" class="icon-btn sidebar-toggle" aria-label="Recolher menu lateral" aria-expanded="true" title="Recolher menu">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg>
+        </button>
       </div>
 
-      <div class="header-actions">
-        <div id="wsBadge" class="status-pill is-offline" role="status" aria-live="polite">
-          <span class="status-dot" aria-hidden="true"></span>
-          <span id="wsLabel">Conectando...</span>
-        </div>
-        <button id="btnRunStudy" type="button" class="btn btn-primary">Atualizar Estudo</button>
-      </div>
-    </header>
+      <nav class="sidebar-nav" role="tablist" aria-label="Seções do painel">
+        <button id="tabBtn-overview" class="nav-item is-active" type="button" role="tab" aria-selected="true" aria-controls="panel-overview" data-tab="overview" data-title="Visão Geral">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/></svg>
+          <span class="nav-label">Dashboard</span>
+        </button>
 
-    <section class="study-strip" aria-label="Status do estudo e configuração da banca de testes">
-      <div class="study-strip-row">
-        <div class="study-status-text">
-          <span id="phasePill" class="tag">IDLE</span>
-          <span id="statusMessage" aria-live="polite">Inicializando painel...</span>
-        </div>
-        <div class="study-meta">
-          <span id="cycleCounter">Ciclos: 0</span>
-          <span id="lastRunLabel">Última atualização: —</span>
-        </div>
-      </div>
-      <progress id="studyProgress" class="study-progress" value="0" max="100" aria-label="Progresso do estudo atual"></progress>
+        <button id="tabBtn-races" class="nav-item" type="button" role="tab" aria-selected="false" aria-controls="panel-races" data-tab="races" data-title="Corridas do Dia" tabindex="-1">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>
+          <span class="nav-label">Corridas</span>
+          <span id="navUpcomingPill" class="nav-pill" hidden>0</span>
+        </button>
 
-      <form id="bankrollForm" class="bankroll-config" aria-label="Configurar banca de testes em reais">
-        <div class="config-field">
-          <label for="cfgBankrollStart">Banca Inicial (R$)</label>
-          <input id="cfgBankrollStart" type="number" step="10" min="10" value="100" />
-        </div>
-        <div class="config-field">
-          <label for="cfgLayStake">Stake por Aposta (R$)</label>
-          <input id="cfgLayStake" type="number" step="1" min="1" value="2" />
-        </div>
-        <button id="btnSaveBankroll" type="submit" class="btn btn-secondary">Reiniciar Banca (R$)</button>
-      </form>
-    </section>
+        <button id="tabBtn-performance" class="nav-item" type="button" role="tab" aria-selected="false" aria-controls="panel-performance" data-tab="performance" data-title="Autoaprendizado &amp; Risco" tabindex="-1">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M18 9l-5 5-4-4-3 3"/></svg>
+          <span class="nav-label">Performance &amp; IA</span>
+        </button>
 
-    <section class="kpi-grid" aria-label="Resumo financeiro e operacional em Reais">
-      <article class="kpi-card">
-        <div class="kpi-header">
-          <span class="kpi-label">Banca Atual (R$)</span>
-          <span id="kpiProfitBadge" class="badge badge-neutral">—</span>
-        </div>
-        <strong id="kpiBankroll" class="kpi-value">R$ 100,00</strong>
-        <p id="kpiBankrollSub" class="kpi-sub">Saldo livre: R$ 100,00 • Em risco: R$ 0,00</p>
-      </article>
+        <button id="tabBtn-tools" class="nav-item" type="button" role="tab" aria-selected="false" aria-controls="panel-tools" data-tab="tools" data-title="Simulador &amp; Logs" tabindex="-1">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+          <span class="nav-label">Simulador &amp; Logs</span>
+        </button>
+      </nav>
 
-      <article class="kpi-card">
-        <div class="kpi-header">
-          <span class="kpi-label">Ganhos vs. Perdas (R$)</span>
-        </div>
-        <div class="win-loss-row">
-          <span class="text-success">Ganhou: <strong id="kpiTotalWon">+R$ 0,00</strong></span>
-          <span class="text-danger">Perdeu: <strong id="kpiTotalLost">-R$ 0,00</strong></span>
-        </div>
-        <p id="kpiWinLossSub" class="kpi-sub">0 acertos / 0 erros em simulações</p>
-      </article>
-
-      <article class="kpi-card">
-        <div class="kpi-header">
-          <span class="kpi-label">Assertividade Lay</span>
-          <span id="kpiPendingBadge" class="badge badge-neutral">0 abertas</span>
-        </div>
-        <strong id="kpiLayAcc" class="kpi-value">0,0%</strong>
-        <p id="kpiLaySub" class="kpi-sub">Galgo que perderá (sem 1º nem último)</p>
-      </article>
-
-      <article class="kpi-card">
-        <div class="kpi-header">
-          <span class="kpi-label">Base &amp; Calibração</span>
-        </div>
-        <strong id="kpiRaces" class="kpi-value">0 corridas</strong>
-        <p id="kpiModelSub" class="kpi-sub">Log-Loss: — • Aguardando treino</p>
-      </article>
-    </section>
-
-    <nav class="tabs" role="tablist" aria-label="Seções do painel">
-      <button id="tabBtn-races" class="tab-btn is-active" type="button" role="tab" aria-selected="true" aria-controls="panel-races" data-tab="races">
-        Corridas do Dia &amp; Futuras
-      </button>
-      <button id="tabBtn-performance" class="tab-btn" type="button" role="tab" aria-selected="false" aria-controls="panel-performance" data-tab="performance" tabindex="-1">
-        Desempenho &amp; Erros
-      </button>
-      <button id="tabBtn-tools" class="tab-btn" type="button" role="tab" aria-selected="false" aria-controls="panel-tools" data-tab="tools" tabindex="-1">
-        Simular Páreo &amp; Logs
-      </button>
-    </nav>
-
-    <main id="mainContent">
-      <!-- ABA 1: CORRIDAS DO DIA -->
-      <section id="panel-races" class="tab-panel is-active" role="tabpanel" aria-labelledby="tabBtn-races">
-        <section id="upcomingCard" class="card card-pad" hidden>
-          <div class="section-head">
+      <div class="sidebar-footer">
+        <div class="bot-status-card">
+          <div class="bot-status-head">
+            <span id="botPulse" class="bot-dot" aria-hidden="true"></span>
             <div>
-              <h2>Corridas Futuras — Apostas Fictícias Travadas (R$)</h2>
-              <p class="card-desc">Apostas registradas antes do início da corrida; assim que o resultado oficial sair na GBGB, o saldo é liquidado automaticamente.</p>
+              <strong id="phasePill" class="bot-phase">IDLE</strong>
+              <span id="cycleCounter" class="bot-cycles">Ciclo #0</span>
             </div>
-            <span id="upcomingCountBadge" class="badge badge-warning">0 abertas</span>
           </div>
-          <div class="table-wrap">
-            <table class="data-table" aria-label="Apostas fictícias abertas em corridas futuras">
-              <thead>
-                <tr>
-                  <th scope="col">Horário (UK) / Pista</th>
-                  <th scope="col">Galgo Apostado (Perderá)</th>
-                  <th scope="col">Chance Perder</th>
-                  <th scope="col">Odd Est.</th>
-                  <th scope="col">Stake / Risco</th>
-                  <th scope="col">Situação</th>
-                </tr>
-              </thead>
-              <tbody id="upcomingBody"></tbody>
-            </table>
+          <p id="statusMessage" class="bot-msg" aria-live="polite">Conectando ao robô...</p>
+          <progress id="studyProgress" class="amber-progress" value="0" max="100" aria-label="Progresso do estudo"></progress>
+          <button id="btnRunStudy" type="button" class="btn btn-amber btn-block">Atualizar Estudo</button>
+        </div>
+      </div>
+    </aside>
+
+    <!-- MAIN WORKSPACE -->
+    <div class="workspace">
+      <header class="topbar">
+        <div class="topbar-left">
+          <button id="btnMobileMenu" type="button" class="icon-btn mobile-only" aria-label="Abrir menu">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+          </button>
+          <div id="wsBadge" class="live-chip is-offline" role="status" aria-live="polite">
+            <span class="live-dot" aria-hidden="true"></span>
+            <span id="wsLabel">Conectando...</span>
+          </div>
+          <span class="divider-v" aria-hidden="true"></span>
+          <span id="pageTitle" class="topbar-title">Visão Geral</span>
+        </div>
+
+        <div class="topbar-right">
+          <span id="lastRunLabel" class="topbar-meta">Atualizado: —</span>
+          <button id="btnOpenBankrollModal" type="button" class="bankroll-chip" title="Configurar ou reiniciar banca de testes">
+            <span class="chip-dot-gold" aria-hidden="true"></span>
+            <span>Banca: <strong id="topBankrollValue">R$ 100,00</strong></span>
+            <span class="chip-edit">Configurar</span>
+          </button>
+        </div>
+      </header>
+
+      <main id="mainContent" class="content">
+        <!-- TAB 1: DASHBOARD / VISÃO GERAL -->
+        <section id="panel-overview" class="tab-panel is-active" role="tabpanel" aria-labelledby="tabBtn-overview">
+          <!-- KPI ROW -->
+          <section class="kpi-grid" aria-label="Indicadores principais">
+            <article class="kpi-card kpi-highlight">
+              <div class="kpi-top">
+                <span class="kpi-label">Banca Atual (R$)</span>
+                <span id="kpiProfitBadge" class="pill pill-neutral">—</span>
+              </div>
+              <strong id="kpiBankroll" class="kpi-value tabular">R$ 100,00</strong>
+              <p id="kpiBankrollSub" class="kpi-sub tabular">Livre: R$ 100,00 • Em risco: R$ 0,00</p>
+            </article>
+
+            <article class="kpi-card">
+              <div class="kpi-top">
+                <span class="kpi-label">Ganhos vs. Perdas</span>
+                <span id="kpiRoiBadge" class="pill pill-amber">ROI 0,0%</span>
+              </div>
+              <div class="win-loss-pair tabular">
+                <span class="text-green">+<strong id="kpiTotalWon">R$ 0,00</strong></span>
+                <span class="text-red">-<strong id="kpiTotalLost">R$ 0,00</strong></span>
+              </div>
+              <p id="kpiWinLossSub" class="kpi-sub">0 acertos / 0 erros ao vivo</p>
+            </article>
+
+            <article class="kpi-card">
+              <div class="kpi-top">
+                <span class="kpi-label">Assertividade Lay</span>
+                <span id="kpiPendingBadge" class="pill pill-amber">0 abertas</span>
+              </div>
+              <strong id="kpiLayAcc" class="kpi-value tabular">0,0%</strong>
+              <p id="kpiLaySub" class="kpi-sub">Miolo do páreo (sem 1º nem último)</p>
+            </article>
+
+            <article class="kpi-card">
+              <div class="kpi-top">
+                <span class="kpi-label">Inteligência &amp; Base</span>
+                <span id="kpiAdaptivePill" class="pill pill-neutral">Normal</span>
+              </div>
+              <strong id="kpiRaces" class="kpi-value tabular">0 corridas</strong>
+              <p id="kpiModelSub" class="kpi-sub">Log-Loss: — • Aguardando treino</p>
+            </article>
+          </section>
+
+          <!-- MIDDLE GRID: CHART + UPCOMING RACES -->
+          <div class="dashboard-split">
+            <section class="panel-card">
+              <div class="card-head">
+                <div>
+                  <h2>Performance Geral da Banca</h2>
+                  <p id="chartSubtitle" class="card-sub">Evolução financeira com comissão 5%, spread e filtro +EV</p>
+                </div>
+                <div class="seg-control" role="group" aria-label="Modo do gráfico">
+                  <button id="btnChartBacktest" type="button" class="seg-btn is-active">Estudo 30d</button>
+                  <button id="btnChartLive" type="button" class="seg-btn">Ao Vivo (R$)</button>
+                </div>
+              </div>
+              <div class="chart-stats-strip tabular">
+                <div><span class="muted">Entradas</span><strong id="chartStatBets">0</strong></div>
+                <div><span class="muted">Lucro Líq.</span><strong id="chartStatPnl">R$ 0,00</strong></div>
+                <div><span class="muted">Profit Factor</span><strong id="chartStatPf">0,00</strong></div>
+                <div><span class="muted">Drawdown Máx.</span><strong id="chartStatDd">R$ 0,00</strong></div>
+              </div>
+              <div id="bankrollChart" class="chart-container"></div>
+            </section>
+
+            <section class="panel-card">
+              <div class="card-head">
+                <div>
+                  <h2>Próximas Corridas</h2>
+                  <p class="card-sub">Apostas fictícias travadas antes da largada</p>
+                </div>
+                <button id="btnJumpRaces" type="button" class="link-amber">Ver todas →</button>
+              </div>
+              <div id="upcomingQuickList" class="quick-list"></div>
+            </section>
+          </div>
+
+          <!-- BOTTOM GRID: STRATEGY + RECENT SETTLED -->
+          <div class="dashboard-bottom">
+            <section class="panel-card">
+              <div class="card-head">
+                <div>
+                  <h2>Estratégia &amp; Proteção Ativa</h2>
+                  <p class="card-sub">Regras aplicadas em cada decisão do robô</p>
+                </div>
+                <button id="btnJumpPerf" type="button" class="link-amber">Gerenciar →</button>
+              </div>
+              <div id="strategySummaryBox" class="strategy-grid"></div>
+            </section>
+
+            <section class="panel-card">
+              <div class="card-head">
+                <div>
+                  <h2>Últimas Apostas Liquidadas</h2>
+                  <p class="card-sub">Resultados reais confirmados na GBGB</p>
+                </div>
+              </div>
+              <div id="recentSettledList" class="quick-list"></div>
+            </section>
           </div>
         </section>
 
-        <div class="toolbar">
-          <div class="toolbar-group">
-            <label for="dateSelect">Data</label>
-            <select id="dateSelect"></select>
-            <label for="customDateInput" class="sr-only">Escolher data na GBGB</label>
-            <input type="date" id="customDateInput" />
-            <button id="btnSyncDate" type="button" class="btn btn-secondary">Buscar Data</button>
-          </div>
-
-          <div class="toolbar-group">
-            <label for="trackSelect">Pista</label>
-            <select id="trackSelect">
-              <option value="ALL">Todas as pistas</option>
-            </select>
-            <label for="searchInput" class="sr-only">Filtrar corridas ou galgos</label>
-            <input type="search" id="searchInput" placeholder="Buscar galgo ou pista..." />
-          </div>
-        </div>
-
-        <div id="daySummaryBar" class="day-summary" aria-live="polite"></div>
-
-        <div class="card">
-          <div class="table-wrap">
-            <table class="data-table races-table" aria-label="Corridas do dia e seleção de Lay">
-              <thead>
-                <tr>
-                  <th scope="col">Horário / Pista</th>
-                  <th scope="col">Galgo para Apostar (Perderá)</th>
-                  <th scope="col">Vencedor Provável</th>
-                  <th scope="col">Status do Bot</th>
-                  <th scope="col">Resultado (R$)</th>
-                  <th scope="col">Detalhes</th>
-                </tr>
-              </thead>
-              <tbody id="racesTableBody"></tbody>
-            </table>
-          </div>
-        </div>
-      </section>
-
-      <!-- ABA 2: DESEMPENHO & ERROS -->
-      <section id="panel-performance" class="tab-panel" role="tabpanel" aria-labelledby="tabBtn-performance" hidden>
-        <div id="simRulesBar" class="day-summary" aria-live="polite"></div>
-
-        <div class="two-col">
-          <section class="card card-pad">
-            <h2>Evolução da Banca de Testes (R$)</h2>
-            <p class="card-desc">Backtest out-of-sample com comissão de 5%, spread + 1 tick, filtro +EV e teto de risco de 15%.</p>
-            <div id="bankrollChart" class="chart-box"></div>
-          </section>
-
-          <section class="card card-pad">
-            <h2>Calibração do Modelo (Previsto vs. Real)</h2>
-            <p class="card-desc">Confere se a probabilidade prevista pelo robô corresponde à frequência real nas corridas.</p>
+        <!-- TAB 2: CORRIDAS DO DIA -->
+        <section id="panel-races" class="tab-panel" role="tabpanel" aria-labelledby="tabBtn-races" hidden>
+          <section id="upcomingCard" class="panel-card" hidden>
+            <div class="card-head">
+              <div>
+                <h2>Corridas Futuras — Apostas Travadas (R$)</h2>
+                <p class="card-sub">Apostas registradas antes do início da corrida e liquidadas automaticamente após o resultado oficial.</p>
+              </div>
+              <span id="upcomingCountBadge" class="pill pill-amber">0 abertas</span>
+            </div>
             <div class="table-wrap">
               <table class="data-table">
                 <thead>
                   <tr>
-                    <th scope="col">Faixa Prevista</th>
-                    <th scope="col">Galgos</th>
-                    <th scope="col">Vitória Prevista</th>
-                    <th scope="col">Vitória Real</th>
-                    <th scope="col">Derrota Real</th>
+                    <th scope="col">Horário (UK) / Pista</th>
+                    <th scope="col">Galgo Apostado (Perderá)</th>
+                    <th scope="col" class="num">Chance Perder</th>
+                    <th scope="col" class="num">Odd Est.</th>
+                    <th scope="col" class="num">Stake / Risco</th>
+                    <th scope="col">Situação</th>
                   </tr>
                 </thead>
-                <tbody id="calibrationBody"></tbody>
+                <tbody id="upcomingBody"></tbody>
               </table>
             </div>
           </section>
-        </div>
 
-        <section class="card card-pad">
-          <div class="section-head">
-            <div>
-              <h2>Autoaprendizado com Próprios Erros</h2>
-              <p class="card-desc">Perfis de pista, distância, classe e odd monitorados pelo histórico do próprio robô; contextos com erro sistemático ou ROI negativo são bloqueados automaticamente.</p>
+          <div class="filter-bar">
+            <div class="filter-group">
+              <label for="dateSelect">Data</label>
+              <select id="dateSelect"></select>
+              <label for="customDateInput" class="sr-only">Buscar outra data</label>
+              <input type="date" id="customDateInput" />
+              <button id="btnSyncDate" type="button" class="btn btn-outline">Buscar GBGB</button>
             </div>
-            <span id="adaptiveModeBadge" class="badge badge-neutral">Modo Normal</span>
-          </div>
-          <div id="adaptiveMetaBar" class="day-summary"></div>
-          <div class="table-wrap">
-            <table class="data-table">
-              <thead>
-                <tr>
-                  <th scope="col">Contexto Aprendido</th>
-                  <th scope="col">Entradas</th>
-                  <th scope="col">Acerto Lay</th>
-                  <th scope="col">ROI</th>
-                  <th scope="col">Previsto vs. Real</th>
-                  <th scope="col">Decisão</th>
-                </tr>
-              </thead>
-              <tbody id="adaptiveBody"></tbody>
-            </table>
-          </div>
-        </section>
-
-        <section class="card card-pad">
-          <h2>Principais Fatores do Modelo</h2>
-          <p class="card-desc">Peso das variáveis usadas para estimar probabilidades sem vazamento futuro.</p>
-          <div id="featureList" class="feature-list"></div>
-        </section>
-
-        <section class="card card-pad">
-          <h2>Histórico de Ciclos de Treino</h2>
-          <div class="table-wrap">
-            <table class="data-table">
-              <thead>
-                <tr>
-                  <th scope="col">Ciclo</th>
-                  <th scope="col">Modelo</th>
-                  <th scope="col">Amostra Val</th>
-                  <th scope="col">Log-Loss</th>
-                  <th scope="col">Brier</th>
-                  <th scope="col">Acerto Lay</th>
-                  <th scope="col">ROI Val</th>
-                </tr>
-              </thead>
-              <tbody id="modelHistoryBody"></tbody>
-            </table>
-          </div>
-        </section>
-
-        <section class="card card-pad">
-          <h2>Auditoria de Erros (Quando o Galgo Indicado Venceu)</h2>
-          <div class="table-wrap">
-            <table class="data-table">
-              <thead>
-                <tr>
-                  <th scope="col">Data</th>
-                  <th scope="col">Pista / Páreo</th>
-                  <th scope="col">Galgo</th>
-                  <th scope="col">Prob. Vitória</th>
-                  <th scope="col">Odd</th>
-                  <th scope="col">Perda (R$)</th>
-                  <th scope="col">Diagnóstico</th>
-                </tr>
-              </thead>
-              <tbody id="errorAuditBody"></tbody>
-            </table>
-          </div>
-        </section>
-      </section>
-
-      <!-- ABA 3: SIMULADOR & LOGS -->
-      <section id="panel-tools" class="tab-panel" role="tabpanel" aria-labelledby="tabBtn-tools" hidden>
-        <section class="card card-pad">
-          <h2>Simular Páreo Futuro Manualmente</h2>
-          <p class="card-desc">Informe os participantes (com autocomplete da base) para prever o provável vencedor e o galgo para apostar em Lay.</p>
-
-          <div class="sim-meta">
-            <div>
-              <label for="simTrack">Pista</label>
-              <input type="text" id="simTrack" value="Nottingham" />
-            </div>
-            <div>
-              <label for="simDistance">Distância (m)</label>
-              <input type="number" id="simDistance" value="480" min="200" max="1000" />
-            </div>
-            <div>
-              <label for="simClass">Classe</label>
-              <input type="text" id="simClass" value="A1" />
+            <div class="filter-group">
+              <label for="trackSelect">Pista</label>
+              <select id="trackSelect"><option value="ALL">Todas as pistas</option></select>
+              <label for="outcomeFilter" class="sr-only">Filtrar resultado</label>
+              <select id="outcomeFilter">
+                <option value="ALL">Todos os status</option>
+                <option value="PENDING">Futuras / Abertas</option>
+                <option value="ACERTOU_LAY">Acertou Lay</option>
+                <option value="ERROU_LAY">Errou Lay</option>
+              </select>
+              <label for="searchInput" class="sr-only">Buscar galgo</label>
+              <input type="search" id="searchInput" placeholder="Buscar galgo ou pista..." />
             </div>
           </div>
 
-          <datalist id="dogsDatalist"></datalist>
-          <div id="simRunnersGrid" class="sim-grid"></div>
+          <div id="daySummaryBar" class="summary-pills" aria-live="polite"></div>
 
-          <div class="sim-actions">
-            <button id="btnRunSim" type="button" class="btn btn-primary">Analisar Páreo</button>
+          <section class="panel-card no-pad">
+            <div class="table-wrap">
+              <table class="data-table races-table" aria-label="Corridas do dia">
+                <thead>
+                  <tr>
+                    <th scope="col">Horário / Pista</th>
+                    <th scope="col">Galgo para Apostar (Perderá)</th>
+                    <th scope="col">Vencedor Provável</th>
+                    <th scope="col">Status</th>
+                    <th scope="col" class="num">Resultado (R$)</th>
+                    <th scope="col" class="num">Análise</th>
+                  </tr>
+                </thead>
+                <tbody id="racesTableBody"></tbody>
+              </table>
+            </div>
+          </section>
+        </section>
+
+        <!-- TAB 3: PERFORMANCE & AUTOAPRENDIZADO -->
+        <section id="panel-performance" class="tab-panel" role="tabpanel" aria-labelledby="tabBtn-performance" hidden>
+          <div id="simRulesBar" class="summary-pills" aria-live="polite"></div>
+
+          <section class="panel-card">
+            <div class="card-head">
+              <div>
+                <h2>Autoaprendizado com Próprios Erros</h2>
+                <p class="card-sub">Contextos de pista e distância monitorados em janela móvel; perfis com ROI &lt; -12% são bloqueados automaticamente.</p>
+              </div>
+              <span id="adaptiveModeBadge" class="pill pill-neutral">Normal</span>
+            </div>
+            <div id="adaptiveMetaBar" class="summary-pills"></div>
+            <div class="table-wrap">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th scope="col">Contexto</th>
+                    <th scope="col" class="num">Entradas</th>
+                    <th scope="col" class="num">Acerto Lay</th>
+                    <th scope="col" class="num">ROI</th>
+                    <th scope="col" class="num">Previsto vs. Real</th>
+                    <th scope="col">Decisão</th>
+                  </tr>
+                </thead>
+                <tbody id="adaptiveBody"></tbody>
+              </table>
+            </div>
+          </section>
+
+          <div class="two-col">
+            <section class="panel-card">
+              <h2>Calibração do Modelo</h2>
+              <p class="card-sub">Probabilidade prevista vs. frequência real observada.</p>
+              <div class="table-wrap">
+                <table class="data-table">
+                  <thead>
+                    <tr>
+                      <th scope="col">Faixa</th>
+                      <th scope="col" class="num">Galgos</th>
+                      <th scope="col" class="num">Vit. Prevista</th>
+                      <th scope="col" class="num">Vit. Real</th>
+                      <th scope="col" class="num">Derrota Real</th>
+                    </tr>
+                  </thead>
+                  <tbody id="calibrationBody"></tbody>
+                </table>
+              </div>
+            </section>
+
+            <section class="panel-card">
+              <h2>Peso dos Indicadores</h2>
+              <p class="card-sub">Variáveis mais influentes nas decisões do modelo.</p>
+              <div id="featureList" class="feature-list"></div>
+            </section>
           </div>
-          <div id="simResultBox" class="sim-result" aria-live="polite"></div>
+
+          <section class="panel-card">
+            <h2>Histórico de Ciclos de Treino</h2>
+            <div class="table-wrap">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th scope="col">Ciclo</th>
+                    <th scope="col">Modelo</th>
+                    <th scope="col" class="num">Amostra Val</th>
+                    <th scope="col" class="num">Log-Loss</th>
+                    <th scope="col" class="num">Brier</th>
+                    <th scope="col" class="num">Acerto Lay</th>
+                    <th scope="col" class="num">ROI Val</th>
+                  </tr>
+                </thead>
+                <tbody id="modelHistoryBody"></tbody>
+              </table>
+            </div>
+          </section>
+
+          <section class="panel-card">
+            <h2>Auditoria de Erros (Zebras que Venceram)</h2>
+            <div class="table-wrap">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th scope="col">Data</th>
+                    <th scope="col">Pista / Páreo</th>
+                    <th scope="col">Galgo</th>
+                    <th scope="col" class="num">Prob. Vitória</th>
+                    <th scope="col" class="num">Odd</th>
+                    <th scope="col" class="num">Perda (R$)</th>
+                    <th scope="col">Diagnóstico</th>
+                  </tr>
+                </thead>
+                <tbody id="errorAuditBody"></tbody>
+              </table>
+            </div>
+          </section>
         </section>
 
-        <section class="card card-pad">
-          <h2>Betfair Historical Data (Odds Reais de Exchange)</h2>
-          <p id="bfHistDesc" class="card-desc">Coloque arquivos gratuitos (.tar.bz2 / .bz2) do Betfair Historical Data na pasta local e clique para cruzar com os resultados GBGB.</p>
-          <div class="toolbar-group">
-            <button id="btnImportBf" type="button" class="btn btn-secondary">Importar Arquivos da Pasta</button>
-            <span id="bfImportStatus" class="meta-inline" aria-live="polite"></span>
-          </div>
-        </section>
+        <!-- TAB 4: SIMULADOR & LOGS -->
+        <section id="panel-tools" class="tab-panel" role="tabpanel" aria-labelledby="tabBtn-tools" hidden>
+          <section class="panel-card">
+            <h2>Simular Páreo Futuro Manualmente</h2>
+            <p class="card-sub">Escolha pista, distância e galgos da base (autocomplete) para prever vencedor e seleção Lay.</p>
 
-        <section class="card card-pad">
-          <h2>Feed de Estudos em Tempo Real</h2>
-          <div id="liveLogsList" class="logs-list" aria-live="polite"></div>
+            <div class="sim-meta">
+              <div>
+                <label for="simTrack">Pista</label>
+                <input type="text" id="simTrack" value="Nottingham" />
+              </div>
+              <div>
+                <label for="simDistance">Distância (m)</label>
+                <input type="number" id="simDistance" value="480" min="200" max="1000" />
+              </div>
+              <div>
+                <label for="simClass">Classe</label>
+                <input type="text" id="simClass" value="A1" />
+              </div>
+            </div>
+
+            <datalist id="dogsDatalist"></datalist>
+            <div id="simRunnersGrid" class="sim-grid"></div>
+            <button id="btnRunSim" type="button" class="btn btn-amber">Analisar Páreo</button>
+            <div id="simResultBox" class="sim-result" aria-live="polite"></div>
+          </section>
+
+          <section class="panel-card">
+            <h2>Betfair Historical Data (Odds Reais de Exchange)</h2>
+            <p id="bfHistDesc" class="card-sub">Coloque arquivos gratuitos (.tar.bz2 / .bz2) do Betfair Historical Data na pasta local para substituir o SP por preços reais de Exchange.</p>
+            <div class="filter-group">
+              <button id="btnImportBf" type="button" class="btn btn-outline">Importar Arquivos da Pasta</button>
+              <span id="bfImportStatus" class="muted" aria-live="polite"></span>
+            </div>
+          </section>
+
+          <section class="panel-card">
+            <h2>Feed de Estudos em Tempo Real</h2>
+            <div id="liveLogsList" class="logs-list" aria-live="polite"></div>
+          </section>
         </section>
-      </section>
-    </main>
+      </main>
+    </div>
   </div>
+
+  <!-- MODAL DE CONFIGURAÇÃO DA BANCA -->
+  <dialog id="bankrollModal" class="modal" aria-labelledby="bankrollModalTitle">
+    <form id="bankrollForm" class="modal-card" method="dialog">
+      <div class="modal-head">
+        <h2 id="bankrollModalTitle">Configurar Banca de Testes (R$)</h2>
+        <button id="btnCloseModal" type="button" class="icon-btn" aria-label="Fechar janela">✕</button>
+      </div>
+      <p class="card-sub">Defina o capital inicial e a stake por entrada. Ao aplicar, a banca ao vivo é reiniciada com o novo valor.</p>
+
+      <div class="modal-fields">
+        <div>
+          <label for="cfgBankrollStart">Banca Inicial (R$)</label>
+          <input id="cfgBankrollStart" type="number" step="10" min="10" value="100" required />
+        </div>
+        <div>
+          <label for="cfgLayStake">Stake por Aposta (R$)</label>
+          <input id="cfgLayStake" type="number" step="0.5" min="1" value="2" required />
+        </div>
+      </div>
+
+      <div class="modal-actions">
+        <button id="btnCancelModal" type="button" class="btn btn-outline">Cancelar</button>
+        <button id="btnSaveBankroll" type="submit" class="btn btn-amber">Reiniciar Banca (R$)</button>
+      </div>
+    </form>
+  </dialog>
 </body>
 </html>

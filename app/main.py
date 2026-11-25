@@ -194,6 +194,15 @@ def get_overview(selected_date: str | None = Query(default=None, alias="date")) 
             """
         ).fetchall()
 
+        live_curve_rows = conn.execute(
+            """
+            SELECT id, iso_date, track_name, race_number, dog_name, lay_odds, status, pnl, bankroll_after
+            FROM paper_bets
+            WHERE status IN ('WON_LAY', 'LOST_LAY')
+            ORDER BY id ASC
+            """
+        ).fetchall()
+
         cal_row = conn.execute(
             "SELECT value FROM app_settings WHERE key = 'calibration_buckets'"
         ).fetchone()
@@ -326,6 +335,7 @@ def get_overview(selected_date: str | None = Query(default=None, alias="date")) 
         },
         "upcoming_bets": [dict(r) for r in pending_rows],
         "bankroll_curve": [dict(r) for r in bankroll_rows[-120:]],
+        "live_curve": [dict(r) for r in live_curve_rows[-120:]],
         "error_audit": [dict(r) for r in error_rows],
         "logs": logs,
     }

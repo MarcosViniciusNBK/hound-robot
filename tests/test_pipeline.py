@@ -115,6 +115,7 @@ def test_end_to_end_pipeline_and_api(tmp_path: Path, monkeypatch) -> None:
         assert idx.headers.get("x-content-type-options") == "nosniff"
         assert idx.headers.get("x-frame-options") == "DENY"
         assert "default-src 'self'" in (idx.headers.get("content-security-policy") or "")
+        assert "style=" not in idx.text.lower()
 
         ov = client.get("/api/overview?date=2026-11-21")
         assert ov.status_code == 200
@@ -123,6 +124,7 @@ def test_end_to_end_pipeline_and_api(tmp_path: Path, monkeypatch) -> None:
         assert "total_won_amount" in ov_json["paper_summary"]
         assert "total_lost_amount" in ov_json["paper_summary"]
         assert "is_profit" in ov_json["paper_summary"]
+        assert "live_curve" in ov_json
 
         rc = client.get("/api/races?date=2026-11-21")
         assert rc.status_code == 200
